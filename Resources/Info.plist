@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Apeos Manager</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -29,6 +29,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Tony Myers. MIT licence.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Apeos Manager connects to your printers on the local network to read status and manage settings.</string>
 </dict>

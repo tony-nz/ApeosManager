@@ -19,6 +19,10 @@ targets:
       path: Resources/Info.plist
       properties:
         CFBundleDisplayName: Apeos Manager
+        # Without this the About panel and the app menu read "ApeosManager": both take
+        # CFBundleName, which defaults to PRODUCT_NAME, not CFBundleDisplayName.
+        CFBundleName: Apeos Manager
+        NSHumanReadableCopyright: "© 2026 Tony Myers. MIT licence."
         CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "14.0"
         NSLocalNetworkUsageDescription: "Apeos Manager connects to your printers on the local network to read status and manage settings."
