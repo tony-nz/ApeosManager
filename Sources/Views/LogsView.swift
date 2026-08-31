@@ -62,10 +62,12 @@ struct LogsView: View {
                         ContentUnavailableView("Sign-in required",
                                                systemImage: "person.badge.key",
                                                description: Text("This printer only serves its job history to an administrator. Use Sign In at the top of the window."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ContentUnavailableView("No job history",
                                                systemImage: "doc.text",
                                                description: Text("The device reported no completed jobs."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
                     Table(jobs) {
@@ -116,10 +118,12 @@ struct LogsView: View {
                         ContentUnavailableView("Sign-in required",
                                                systemImage: "person.badge.key",
                                                description: Text("This printer only serves its fault log to an administrator."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ContentUnavailableView("No faults recorded",
                                                systemImage: "checkmark.seal",
                                                description: Text("This printer's fault history is empty."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
                     Table(vm.faults) {

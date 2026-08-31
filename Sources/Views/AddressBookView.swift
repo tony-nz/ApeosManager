@@ -35,10 +35,12 @@ struct AddressBookView: View {
                     ContentUnavailableView("Sign-in required",
                                            systemImage: "person.badge.key",
                                            description: Text("This printer serves its address book only to an administrator."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ContentUnavailableView("No contacts",
                                            systemImage: "person.crop.circle",
                                            description: Text("This printer's address book is empty."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 Table(contacts) {
@@ -156,6 +158,7 @@ struct FleetAddressBookView: View {
                 ContentUnavailableView("No printers readable",
                                        systemImage: "person.badge.key",
                                        description: Text("Printers need an administrator sign-in before their address books can be listed."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Table(merged) {
                     TableColumn("★") { c in
@@ -197,12 +200,17 @@ struct FleetAddressBookView: View {
                 .padding(.horizontal, 20)
             }
 
-            HStack {
-                Text("Printer columns, in order: " + readable.map(\.printer.name).joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
+            // With nothing readable the legend would name no columns; the empty state
+            // already explains why.
+            if !readable.isEmpty {
+                HStack {
+                    Text("Printer columns, in order: "
+                         + readable.map(\.printer.name).joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 20).padding(.vertical, 10)
             }
-            .padding(.horizontal, 20).padding(.vertical, 10)
         }
         .task { await fleet.connectAll() }
     }

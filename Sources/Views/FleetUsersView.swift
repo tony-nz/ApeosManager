@@ -74,6 +74,7 @@ struct FleetUsersView: View {
                 ContentUnavailableView("No printers readable",
                                        systemImage: "person.badge.key",
                                        description: Text("Printers need an administrator sign-in before their users can be listed."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Table(users, selection: $selected) {
                     TableColumn("User ID") { Text($0.userID).monospaced() }
@@ -112,11 +113,15 @@ struct FleetUsersView: View {
                 }
             }
 
-            HStack {
-                Text(legend).font(.caption).foregroundStyle(.secondary)
-                Spacer()
+            // With nothing readable the legend would name no columns; the empty state
+            // already explains why.
+            if !readable.isEmpty {
+                HStack {
+                    Text(legend).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 20).padding(.vertical, 10)
             }
-            .padding(.horizontal, 20).padding(.vertical, 10)
         }
         .sheet(isPresented: $showAdd) { AddUserToPrintersSheet() }
         .sheet(item: $editing) { FleetUserEditor(user: $0) }
