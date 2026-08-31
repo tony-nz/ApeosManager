@@ -3,7 +3,7 @@ import Security
 
 /// Printer administrator passwords live in the login keychain, never in UserDefaults.
 enum Keychain {
-    private static let service = "nz.school.rangiora.ApeosManager"
+    private static let service = "nz.co.myers.ApeosManager"
 
     static func set(_ password: String, account: String) {
         let base: [String: Any] = [

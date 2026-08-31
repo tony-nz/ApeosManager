@@ -24,7 +24,7 @@ xcodebuild -project ApeosManager.xcodeproj -scheme ApeosManager -configuration D
   build "$@" | grep -E 'error:|warning: no rule|BUILD (SUCCEEDED|FAILED)' || true
 
 codesign --force --deep --sign "$IDENTITY" \
-         --identifier nz.school.rangiora.ApeosManager \
+         --identifier nz.co.myers.ApeosManager \
          --options runtime "$APP" 2>&1 | sed 's/^/  codesign: /'
 codesign -dv "$APP" 2>&1 | grep -E 'Authority|Identifier=' | sed 's/^/  /'
 echo "built: $APP"

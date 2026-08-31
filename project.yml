@@ -1,6 +1,6 @@
 name: ApeosManager
 options:
-  bundleIdPrefix: nz.school.rangiora
+  bundleIdPrefix: nz.co.myers
   deploymentTarget: { macOS: "14.0" }
   createIntermediateGroups: true
 settings:

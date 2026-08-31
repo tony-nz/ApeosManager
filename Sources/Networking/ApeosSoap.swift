@@ -32,7 +32,7 @@ extension ApeosClient {
 }
 
 enum SoapLog {
-    private static let queue = DispatchQueue(label: "nz.school.rangiora.ApeosManager.soaplog")
+    private static let queue = DispatchQueue(label: "nz.co.myers.ApeosManager.soaplog")
     private static let url: URL? = {
         guard let dir = try? FileManager.default.url(for: .libraryDirectory, in: .userDomainMask,
                                                      appropriateFor: nil, create: false)
