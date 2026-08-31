@@ -1,0 +1,32 @@
+name: ApeosManager
+options:
+  bundleIdPrefix: nz.school.rangiora
+  deploymentTarget: { macOS: "14.0" }
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+targets:
+  ApeosManager:
+    type: application
+    platform: macOS
+    sources: [Sources, Resources/AppIcon.icns]
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Apeos Manager
+        CFBundleIconFile: AppIcon
+        LSMinimumSystemVersion: "14.0"
+        NSLocalNetworkUsageDescription: "Apeos Manager connects to your printers on the local network to read status and manage settings."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: Resources/ApeosManager.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-write: true

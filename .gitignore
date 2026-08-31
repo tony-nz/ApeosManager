@@ -1,0 +1,12 @@
+# Build output
+build/
+*.xcodeproj/
+DerivedData/
+
+# Captured device responses: these contain real serial numbers, host names,
+# internal addresses and site email addresses. Never commit them.
+tools/apidump*/
+*.apidump/
+soap.log
+
+.DS_Store
