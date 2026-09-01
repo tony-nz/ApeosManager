@@ -311,27 +311,45 @@ extension ApeosClient {
 
     /// The device pages this collection (its own UI uses 20 per request) and an
     /// oversized Limit yields an empty set rather than a fault, so pages are walked
-    /// until NumberOfUsers is satisfied.
+    /// until the device stops returning records.
+    ///
+    /// Two things this must not do, both of which silently truncated the directory:
+    ///
+    /// - **Advance by the requested page size.** A model may cap its page below the
+    ///   requested Limit, and stepping by `pageSize` then skips every record between
+    ///   what came back and the next offset. Step by what the device actually sent.
+    /// - **Terminate on NumberOfUsers.** It is not a dependable count of the whole
+    ///   collection, so `all.count >= total` ended the walk early and the tail of the
+    ///   directory never loaded. It is ignored here; an empty page is the terminator.
     private func fetchUsers(responds paths: [String]) async throws -> [DeviceUser] {
         var all: [DeviceUser] = []
+        var seen = Set<String>()
         var offset = 0
         let pageSize = 50
-        var total = Int.max
+        // Bounds the walk if a device neither pages nor empties: 200 x 50 records.
+        let maxPages = 200
 
-        while offset < total {
-            let (page, reported) = try await fetchUserPage(offset: offset, limit: pageSize,
-                                                           responds: paths)
-            if let reported { total = reported }
-            if page.isEmpty { break }
-            all.append(contentsOf: page)
-            offset += pageSize
-            if all.count >= total { break }
+        for _ in 0..<maxPages {
+            let (page, _, rawCount) = try await fetchUserPage(offset: offset, limit: pageSize,
+                                                              responds: paths)
+            guard rawCount > 0 else { break }
+            let fresh = page.filter { seen.insert($0.userID).inserted }
+            // A device that ignores Offset replays page one forever. Once a whole page
+            // is records already held, walking further cannot add anything.
+            guard !fresh.isEmpty else { break }
+            all.append(contentsOf: fresh)
+            // rawCount, not fresh.count: a record the parser rejects still occupies a
+            // slot in the device's ordering, and skipping it would re-read for ever.
+            offset += rawCount
         }
         return all
     }
 
+    /// Returns the parsed users, the device's reported NumberOfUsers, and how many
+    /// `User` elements the response actually carried -- the last is what paging must
+    /// step by, since it counts records the parser discarded too.
     private func fetchUserPage(offset: Int, limit: Int,
-                               responds paths: [String]) async throws -> ([DeviceUser], Int?) {
+                               responds paths: [String]) async throws -> ([DeviceUser], Int?, Int) {
         let inner = """
         <o:UserTypes><o:UserType>KO</o:UserType><o:UserType>CO</o:UserType></o:UserTypes>\
         <o:Sort><cmn:Key order="ascending">UserID</cmn:Key></o:Sort>\
@@ -372,9 +390,9 @@ extension ApeosClient {
         }
         if ProcessInfo.processInfo.environment["APEOS_DEBUG"] != nil {
             FileHandle.standardError.write(Data(
-                "PARSED page offset=\(offset): \(users.count) users, total=\(total.map(String.init) ?? "nil")\n".utf8))
+                "PARSED page offset=\(offset) limit=\(limit): \(nodes.count) records, \(users.count) parsed, total=\(total.map(String.init) ?? "nil")\n".utf8))
         }
-        return (users, total)
+        return (users, total, nodes.count)
     }
 
     /// Creates a user.
