@@ -3,7 +3,10 @@ import Security
 
 /// Printer administrator passwords live in the login keychain, never in UserDefaults.
 enum Keychain {
-    private static let service = "nz.co.myers.ApeosManager"
+    /// Namespaced per app, so the user app cannot read the administrator passwords the
+    /// fleet manager saves, nor the other way round. For Apeos Manager this resolves to
+    /// the literal it has always used, leaving passwords from earlier builds readable.
+    private static let service = Bundle.main.bundleIdentifier ?? "nz.co.myers.ApeosManager"
 
     static func set(_ password: String, account: String) {
         let base: [String: Any] = [

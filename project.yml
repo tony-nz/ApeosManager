@@ -11,10 +11,11 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
 targets:
+  # The administrator's fleet manager.
   ApeosManager:
     type: application
     platform: macOS
-    sources: [Sources, Resources/AppIcon.icns]
+    sources: [Sources/Shared, Sources/Admin, Resources/AppIcon.icns]
     info:
       path: Resources/Info.plist
       properties:
@@ -34,3 +35,28 @@ targets:
         com.apple.security.app-sandbox: false
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-write: true
+
+  # The end user's own quota monitor. Shares the models and the transport, none of the
+  # administrative UI, and signs in only as the person sitting in front of it.
+  ApeosQuota:
+    type: application
+    platform: macOS
+    sources: [Sources/Shared, Sources/Quota, Resources/AppIcon.icns]
+    info:
+      path: Resources/ApeosQuota-Info.plist
+      properties:
+        CFBundleDisplayName: Apeos Quota
+        CFBundleName: Apeos Quota
+        NSHumanReadableCopyright: "© 2026 Tony Myers. MIT licence."
+        CFBundleIconFile: AppIcon
+        LSMinimumSystemVersion: "14.0"
+        # Lives in the menu bar, not the Dock. The detail window is opened from there.
+        LSUIElement: true
+        NSLocalNetworkUsageDescription: "Apeos Quota connects to your printers on the local network to read your own printing quota."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: Resources/ApeosQuota.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true

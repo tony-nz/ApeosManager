@@ -5,6 +5,9 @@ import SwiftUI
 struct UsageEditor: View {
     let user: DeviceUser
     @ObservedObject var vm: DeviceViewModel
+    /// Set when hosted as a pane of `UserInspector`, which supplies the heading and the
+    /// window metrics for all three panes so they cannot disagree about either.
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
 
     @State private var limits: [String: String] = [:]
@@ -12,9 +15,10 @@ struct UsageEditor: View {
     @State private var saving = false
     @State private var confirmClear = false
 
-    init(user: DeviceUser, vm: DeviceViewModel) {
+    init(user: DeviceUser, vm: DeviceViewModel, embedded: Bool = false) {
         self.user = user
         self.vm = vm
+        self.embedded = embedded
         var l: [String: String] = [:]
         var u: [String: Bool] = [:]
         for type in UsageMeter.allTypes {
@@ -31,18 +35,14 @@ struct UsageEditor: View {
         user.usage.first { $0.type == type }
     }
 
-    private var groups: [(String, [String])] {
-        [("Copy", ["CopyColor", "CopyBW"]),
-         ("Print", ["PrintColor", "PrintBW"]),
-         ("Scan", ["ScanColor", "ScanBW"])]
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Account Usage").font(.title2).bold()
-                Text("\(user.displayName) · \(user.userID) on \(vm.printer.name)")
-                    .font(.callout).foregroundStyle(.secondary)
+            if !embedded {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Account Usage").font(.title2).bold()
+                    Text("\(user.displayName) · \(user.userID) on \(vm.printer.name)")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
             }
 
             if user.usage.isEmpty {
@@ -52,22 +52,7 @@ struct UsageEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ForEach(groups, id: \.0) { group in
-                GroupBox(group.0) {
-                    VStack(spacing: 8) {
-                        ForEach(group.1, id: \.self) { type in
-                            MeterRow(type: type,
-                                     meter: meter(type),
-                                     limitText: Binding(
-                                        get: { limits[type] ?? "" },
-                                        set: { limits[type] = $0 }),
-                                     isUnlimited: Binding(
-                                        get: { unlimited[type] ?? true },
-                                        set: { unlimited[type] = $0 }))
-                        }
-                    }
-                }
-            }
+            UsageLimitsFields(limits: $limits, unlimited: $unlimited, meter: meter)
 
             if let e = vm.usersError {
                 Text(e).font(.callout).foregroundStyle(.orange)
@@ -85,8 +70,8 @@ struct UsageEditor: View {
                     .disabled(saving)
             }
         }
-        .padding(20)
-        .frame(width: 520)
+        .padding(embedded ? 0 : 20)
+        .frame(width: embedded ? nil : 520)
         .alert("Reset usage counters for \(user.displayName)?", isPresented: $confirmClear) {
             Button("Reset", role: .destructive) {
                 Task { saving = true; await vm.clearUsage(user); saving = false; dismiss() }
@@ -110,46 +95,5 @@ struct UsageEditor: View {
         }
         await vm.saveUsageLimits(user, limits: out)
         if vm.usersError == nil { dismiss() }
-    }
-}
-
-private struct MeterRow: View {
-    let type: String
-    let meter: UsageMeter?
-    @Binding var limitText: String
-    @Binding var isUnlimited: Bool
-
-    private var isColour: Bool { type.hasSuffix("Color") }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 5) {
-                Circle().fill(isColour ? Color.accentColor : Color.secondary)
-                    .frame(width: 8, height: 8)
-                Text(isColour ? "Colour" : "Black & White").frame(width: 110, alignment: .leading)
-            }
-
-            Text(meter.map { "\($0.used)" } ?? "0")
-                .monospacedDigit().frame(width: 64, alignment: .trailing)
-                .help("Used")
-
-            Text("of").foregroundStyle(.secondary).font(.caption)
-
-            TextField("limit", text: $limitText)
-                .frame(width: 90)
-                .monospacedDigit()
-                .disabled(isUnlimited)
-
-            Toggle("Unlimited", isOn: $isUnlimited).toggleStyle(.checkbox)
-
-            Spacer()
-
-            if let m = meter, !m.isUnlimited, let limit = m.limit, limit > 0 {
-                ProgressView(value: m.fraction)
-                    .frame(width: 70)
-                    .tint(m.fraction > 0.9 ? .orange : .accentColor)
-            }
-        }
-        .font(.callout)
     }
 }

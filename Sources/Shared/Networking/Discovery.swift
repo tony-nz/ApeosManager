@@ -81,6 +81,49 @@ final class PrinterDiscovery: NSObject, URLSessionDelegate, @unchecked Sendable 
         return best
     }
 
+    // MARK: - Where to sweep
+
+    /// The `/24` prefixes this Mac is actually on, e.g. "10.69.192", most likely first.
+    ///
+    /// Typing a subnet is a fair question to put to an administrator and a poor one to
+    /// put to somebody who just wants to see their printing balance, so the user app
+    /// offers these rather than an empty field. Wired and Wi-Fi interfaces are preferred
+    /// over the rest, which are mostly virtual adapters from VPNs and container runtimes
+    /// that no printer is ever on.
+    static func localPrefixes() -> [String] {
+        var out: [(name: String, prefix: String)] = []
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return [] }
+        defer { freeifaddrs(head) }
+
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
+                  let addr = ptr.pointee.ifa_addr,
+                  addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(addr, socklen_t(addr.pointee.sa_len),
+                              &host, socklen_t(host.count),
+                              nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let ip = String(cString: host)
+            let parts = ip.split(separator: ".")
+            guard parts.count == 4, ip != "127.0.0.1" else { continue }
+            // 169.254/16 is a link-local address handed out when DHCP failed; nothing
+            // reachable lives there.
+            guard !ip.hasPrefix("169.254.") else { continue }
+
+            let name = String(cString: ptr.pointee.ifa_name)
+            let prefix = parts.prefix(3).joined(separator: ".")
+            if !out.contains(where: { $0.prefix == prefix }) { out.append((name, prefix)) }
+        }
+
+        return out.sorted { a, b in
+            let rank = { (n: String) in n.hasPrefix("en") ? 0 : 1 }
+            return rank(a.name) < rank(b.name)
+        }.map(\.prefix)
+    }
+
     // MARK: - Sweep
 
     /// Probes `prefix.1 ... prefix.254`, reporting each hit and overall progress.

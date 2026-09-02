@@ -14,6 +14,10 @@ struct AccountsView: View {
     /// Deletion removes a staff record from the device and cannot be undone, so it is
     /// always confirmed rather than firing on a single click of a small icon.
     @State private var pendingDelete: DeletionTarget?
+    /// Selection drives the Edit button in the action bar, so a row can be opened
+    /// without hunting for the icon at the far right of a wide table.
+    @State private var selectedUser: DeviceUser.ID?
+    @State private var selectedAccount: DeptAccount.ID?
 
     enum DeletionTarget: Identifiable {
         case user(DeviceUser)
@@ -38,7 +42,7 @@ struct AccountsView: View {
         var message: String {
             switch self {
             case .user:
-                return "This removes the account from the printer, along with any usage counters held against it. It cannot be undone."
+                return "This removes the account from the printer, along with any usage counters held against it and the address book entry carrying its email address. It cannot be undone."
             case .account:
                 return "This removes the department from the printer, along with its usage counters. It cannot be undone."
             }
@@ -48,13 +52,17 @@ struct AccountsView: View {
     enum EditorTarget: Identifiable {
         case account(DeptAccount, isNew: Bool)
         case user(DeviceUser, isNew: Bool)
-        case usage(DeviceUser)
+        /// Adding a user on this printer: the same four-pane sheet the fleet-wide Add
+        /// User offers, minus the printer picker.
+        case newUser
+        case inspect(DeviceUser)
 
         var id: String {
             switch self {
             case .account(let a, let isNew): return "acct-\(isNew)-\(a.accountID)"
             case .user(let u, let isNew):    return "user-\(isNew)-\(u.userID)"
-            case .usage(let u):              return "usage-\(u.userID)"
+            case .newUser:                   return "new-user"
+            case .inspect(let u):            return "inspect-\(u.userID)"
             }
         }
     }
@@ -91,8 +99,13 @@ struct AccountsView: View {
                     Button {
                         editor = mode == .departments
                             ? .account(DeptAccount(accountID: "", name: "", newUserDefault: false), isNew: true)
-                            : .user(DeviceUser(userID: "", userName: "", userType: "CO"), isNew: true)
+                            : .newUser
                     } label: { Label("Add", systemImage: "plus") }
+
+                    Button {
+                        if let target = selectedRowEditor { editor = target }
+                    } label: { Label("Edit", systemImage: "square.and.pencil") }
+                    .disabled(selectedRowEditor == nil)
 
                     Button("Reload") { Task { await vm.loadDirectory() } }
                     if vm.loadingAccounts { ProgressView().controlSize(.small) }
@@ -121,10 +134,29 @@ struct AccountsView: View {
                     UserEditor(user: user, isNew: isNew, existingIDs: Set(vm.users.map(\.userID))) { saved, pw in
                         Task { await vm.saveUser(saved, password: pw, isNew: isNew) }
                     }
-                case .usage(let user):
-                    UsageEditor(user: user, vm: vm)
+                case .newUser:
+                    AddUserToPrinterSheet(vm: vm)
+                case .inspect(let user):
+                    UserInspector(user: user, vm: vm,
+                                  existingIDs: Set(vm.users.map(\.userID))) { saved, pw in
+                        Task { await vm.saveUser(saved, password: pw, isNew: false) }
+                    }
                 }
             }
+        }
+    }
+
+    /// The editor the action bar's Edit button would open: whichever row is selected in
+    /// the table currently on screen. Resolved against the loaded records rather than
+    /// held alongside the selection, so a row that has since been deleted or reloaded
+    /// away cannot open a stale copy of itself.
+    private var selectedRowEditor: EditorTarget? {
+        switch mode {
+        case .users:
+            return vm.users.first { $0.id == selectedUser }.map { .inspect($0) }
+        case .departments:
+            return vm.accounts.first { $0.id == selectedAccount }
+                .map { .account($0, isNew: false) }
         }
     }
 
@@ -136,7 +168,7 @@ struct AccountsView: View {
                            ? "The device's accounting service is not running — device accounting is switched off (Accounting/Billing Device Settings → accounting type is NONE). Enable it on the device to create departments."
                            : "Add a department to begin tracking usage.")
             } else {
-                Table(vm.accounts) {
+                Table(vm.accounts, selection: $selectedAccount) {
                     TableColumn("ID") { Text($0.accountID).monospacedDigit() }
                     TableColumn("Name") { Text($0.name.isEmpty ? "—" : $0.name) }
                     TableColumn("Default for new users") { a in
@@ -150,12 +182,18 @@ struct AccountsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     TableColumn("") { a in
-                        HStack {
-                            Button("Edit") { editor = .account(a, isNew: false) }
+                        HStack(spacing: 2) {
+                            Button { editor = .account(a, isNew: false) } label: {
+                                Image(systemName: "square.and.pencil")
+                            }
+                            .help("Edit \(a.name.isEmpty ? a.accountID : a.name)")
                             Button(role: .destructive) { pendingDelete = .account(a) }
                                 label: { Image(systemName: "trash") }
+                                .help("Delete \(a.name.isEmpty ? a.accountID : a.name)")
                         }
+                        .buttonStyle(.borderless)
                     }
+                    .width(56)
                 }
                 .padding(.horizontal, 20)
             }
@@ -168,7 +206,7 @@ struct AccountsView: View {
                 emptyState("No local users",
                            "This device has no local user accounts. Add one, or configure LDAP/Azure AD for network authentication.")
             } else {
-                Table(vm.users) {
+                Table(vm.users, selection: $selectedUser) {
                     TableColumn("User ID") { Text($0.userID).monospaced() }
                     TableColumn("Name") { Text($0.userName.isEmpty ? "—" : $0.userName) }
                     TableColumn("Type") { u in
@@ -192,13 +230,18 @@ struct AccountsView: View {
                             .foregroundStyle(.secondary)
                     }
                     TableColumn("") { u in
-                        HStack {
-                            Button("Usage") { editor = .usage(u) }
-                            Button("Edit") { editor = .user(u, isNew: false) }
+                        HStack(spacing: 2) {
+                            Button { editor = .inspect(u) } label: {
+                                Image(systemName: "square.and.pencil")
+                            }
+                            .help("Edit \(u.displayName)")
                             Button(role: .destructive) { pendingDelete = .user(u) }
                                 label: { Image(systemName: "trash") }
+                                .help("Delete \(u.displayName)")
                         }
+                        .buttonStyle(.borderless)
                     }
+                    .width(56)
                 }
                 .padding(.horizontal, 20)
             }
@@ -259,17 +302,21 @@ struct UserEditor: View {
     private let isNew: Bool
     private let originalID: String
     private let existingIDs: Set<String>
+    /// Set when hosted as a pane of `UserInspector`, which supplies the heading and the
+    /// window metrics for all three panes so they cannot disagree about either.
+    private let embedded: Bool
     private let onSave: (DeviceUser, String?) -> Void
     @Environment(\.dismiss) private var dismiss
 
     /// State is seeded in init rather than via a `@State var` parameter, which SwiftUI
     /// only honours the first time a view is created and otherwise leaves stale.
-    init(user: DeviceUser, isNew: Bool, existingIDs: Set<String>,
+    init(user: DeviceUser, isNew: Bool, existingIDs: Set<String>, embedded: Bool = false,
          onSave: @escaping (DeviceUser, String?) -> Void) {
         _draft = State(initialValue: user)
         self.isNew = isNew
         self.originalID = user.userID
         self.existingIDs = existingIDs
+        self.embedded = embedded
         self.onSave = onSave
     }
 
@@ -283,7 +330,9 @@ struct UserEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(isNew ? "New User" : "Edit User").font(.title3).bold()
+            if !embedded {
+                Text(isNew ? "New User" : "Edit User").font(.title3).bold()
+            }
 
             Form {
                 TextField("User ID", text: $draft.userID,
@@ -325,6 +374,6 @@ struct UserEditor: View {
                 .disabled(trimmedID.isEmpty || idIsDuplicate || idChanged)
             }
         }
-        .padding(20).frame(width: 460)
+        .padding(embedded ? 0 : 20).frame(width: embedded ? nil : 460)
     }
 }

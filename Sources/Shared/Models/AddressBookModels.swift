@@ -28,6 +28,14 @@ struct Contact: Identifiable, Hashable, Sendable {
 
     var id: String { contactId }
 
+    /// `favorite` is a `let` so a contact cannot drift out of step with the device by
+    /// accident; this is the one sanctioned way to move it, after a confirmed write.
+    func settingFavorite(_ value: Bool) -> Contact {
+        Contact(contactId: contactId, contactType: contactType, favorite: value,
+                displayName: displayName, lastName: lastName, firstName: firstName,
+                company: company, key: key, destinations: destinations)
+    }
+
     var name: String {
         if !displayName.isEmpty { return displayName }
         let joined = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")

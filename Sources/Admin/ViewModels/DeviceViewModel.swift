@@ -40,6 +40,17 @@ final class DeviceViewModel: ObservableObject {
     /// The stored administrator password, if one was saved when the printer was added.
     private let storedPassword: String?
 
+    /// The in-flight `connect()`, held on the model rather than left to the view that
+    /// happened to ask for it. Every screen starts this from `.task`, and SwiftUI
+    /// cancels a `.task` when its view goes away -- which used to cancel the sign-in
+    /// POST along with it. Because an unstructured Task is not cancelled by the context
+    /// awaiting it, navigating away mid-login no longer aborts the login, and callers
+    /// arriving while one is running join it instead of starting a second.
+    private var connectTask: Task<Void, Never>?
+    /// Whether the last sign-in was interrupted rather than refused. A refusal should
+    /// not be retried on every view appearance; an interruption must be.
+    private var lastSignInCancelled = false
+
     init(printer: Printer, password: String? = nil) {
         self.printer = printer
         self.storedPassword = password
@@ -51,13 +62,33 @@ final class DeviceViewModel: ObservableObject {
     /// order that works across the fleet.
     func connect() async {
         guard !isConnected else { return }
-        isConnected = true
+        let task = connectTask ?? {
+            let t = Task { [weak self] in
+                guard let self else { return }
+                await self.performConnect()
+            }
+            connectTask = t
+            return t
+        }()
+        await task.value
+    }
+
+    private func performConnect() async {
+        defer { connectTask = nil }
+        guard !isConnected else { return }
         if let storedPassword, !storedPassword.isEmpty, !isSignedIn {
             await signIn(password: storedPassword)
+            // Latched only once the attempt settled. Marking the printer connected
+            // before trying -- as this did -- meant one interrupted sign-in left it
+            // signed out for the life of the process, because every later view saw
+            // `isConnected` and skipped the retry. That is what made a fresh sign-in
+            // necessary on almost every launch.
+            isConnected = !lastSignInCancelled
         } else {
             if passwordLocked {
                 notice = "A saved password exists but this build of the app cannot read it — the app's code signature changed. Sign in once to store it again."
             }
+            isConnected = true
             await refresh()
         }
     }
@@ -72,6 +103,8 @@ final class DeviceViewModel: ObservableObject {
     }
 
     func reconnect() async {
+        connectTask?.cancel()
+        connectTask = nil
         isConnected = false
         await connect()
     }
@@ -120,6 +153,7 @@ final class DeviceViewModel: ObservableObject {
 
     func signIn(password: String) async {
         errorMessage = nil
+        lastSignInCancelled = false
         do {
             let result = try await client.login(userID: printer.adminUser, password: password)
             isSignedIn = true
@@ -130,6 +164,14 @@ final class DeviceViewModel: ObservableObject {
             await refresh()
             await loadAccounting()
             await loadDirectory()
+        } catch is CancellationError {
+            // The work was called off, not refused. Reporting "cancelled" as a sign-in
+            // failure told the user their password was rejected when it was never tried.
+            isSignedIn = false
+            lastSignInCancelled = true
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            isSignedIn = false
+            lastSignInCancelled = true
         } catch {
             isSignedIn = false
             errorMessage = error.localizedDescription
@@ -215,22 +257,192 @@ final class DeviceViewModel: ObservableObject {
         } catch { usersError = error.localizedDescription }
     }
 
+    @Published var contactsError: String?
+    /// Contacts with a favourite write in flight, so the row can show progress and a
+    /// second click cannot race the first.
+    @Published private(set) var favouritesInFlight: Set<String> = []
+
+    /// Sets or clears a contact's favourite flag and updates the held copy in place.
+    ///
+    /// The list is patched rather than re-read: the address book is paged twenty at a
+    /// time and re-reading the whole book to reflect one star would make the click feel
+    /// like a page load. `setFavorite` has already confirmed against the device, so what
+    /// it returns is what the printer holds.
+    @discardableResult
+    func setFavourite(_ contact: Contact, to value: Bool) async -> Bool {
+        guard isSignedIn else {
+            contactsError = "Signing in as an administrator is required to change favourites."
+            return false
+        }
+        guard !favouritesInFlight.contains(contact.contactId) else { return false }
+        contactsError = nil
+        favouritesInFlight.insert(contact.contactId)
+        defer { favouritesInFlight.remove(contact.contactId) }
+
+        do {
+            let stored = try await client.setFavorite(contactId: contact.contactId, to: value)
+            if let i = contacts.firstIndex(where: { $0.contactId == contact.contactId }) {
+                contacts[i] = contacts[i].settingFavorite(stored)
+            }
+            if stored != value {
+                contactsError = "\(printer.name) did not store the change for \(contact.name)."
+                return false
+            }
+            return true
+        } catch {
+            contactsError = "\(printer.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Reads the record the device just created and overlays only what the operator
+    /// chose. Overlaying the device's own defaults rather than a composed record keeps
+    /// every untouched field exactly as the printer set it.
+    func applyChosenPermissions(to user: DeviceUser, _ draft: NewUserDraft) async -> Bool {
+        guard var wanted = await loadPermissions(for: user) else { return false }
+        for (service, value) in draft.access { wanted.access[service] = value }
+        if let v = draft.login { wanted.login = v }
+        if let v = draft.role { wanted.role = v }
+        if let v = draft.group { wanted.group = v }
+        return await savePermissions(for: user, wanted) != nil && usersError == nil
+    }
+
+    /// Files an email address in this printer's address book. Verified by read-back
+    /// inside the client, because the endpoint answers 200 to creates it discards.
+    func addContact(named name: String, email: String) async -> Bool {
+        contactsError = nil
+        do {
+            try await client.addContact(displayName: name, email: email)
+            contacts = (try? await client.addressBook()) ?? contacts
+            return true
+        } catch {
+            contactsError = "\(printer.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Renames a contact or changes its address. Returns whether the printer took it.
+    func updateContact(_ c: Contact, displayName: String, company: String,
+                       email: String) async -> Bool {
+        contactsError = nil
+        guard !favouritesInFlight.contains(c.contactId) else { return false }
+        favouritesInFlight.insert(c.contactId)
+        defer { favouritesInFlight.remove(c.contactId) }
+        do {
+            try await client.updateContact(id: c.contactId, displayName: displayName,
+                                           company: company, email: email)
+            contacts = (try? await client.addressBook()) ?? contacts
+            return true
+        } catch {
+            contactsError = "\(printer.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Removes a contact from this printer's address book.
+    func deleteContact(_ c: Contact) async -> Bool {
+        contactsError = nil
+        do {
+            guard try await client.deleteContact(id: c.contactId) else {
+                contactsError = "\(printer.name) still lists \(c.name) after the delete."
+                return false
+            }
+            contacts = (try? await client.addressBook()) ?? contacts
+            return true
+        } catch {
+            contactsError = "\(printer.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func clearUsage(_ u: DeviceUser) async {
         usersError = nil
         do { try await client.clearUsageCounters(u); await loadDirectory() }
         catch { usersError = error.localizedDescription }
     }
 
+    /// Deletes a user and, with them, the address book entry that carries their email
+    /// address.
+    ///
+    /// The address is read before the delete, not after: once the record is gone the
+    /// device has no way to tell you what it was, and the entry would be left behind
+    /// with no way left to identify it.
     func deleteUser(_ u: DeviceUser) async {
         usersError = nil
+        let address = await loadPermissions(for: u)?.mailAddress?
+            .trimmingCharacters(in: .whitespaces) ?? ""
         do {
             try await client.deleteUser(id: u.userID, userType: u.userType)
             await loadDirectory()
             if users.contains(where: { $0.userID == u.userID }) {
                 usersError = "The device accepted the delete but user '\(u.userID)' is still listed."
+                return
             }
         }
-        catch { usersError = error.localizedDescription }
+        catch { usersError = error.localizedDescription; return }
+
+        // The user is gone either way; a stranded contact is worth reporting but is not
+        // a failed deletion, so it is a notice rather than an error.
+        guard !address.isEmpty else { return }
+        do {
+            if try await client.deleteContact(withEmail: address) != nil {
+                contacts = (try? await client.addressBook()) ?? contacts
+            }
+        } catch {
+            notice = "\(u.displayName) was deleted, but their address book entry (\(address)) could not be removed from \(printer.name)."
+        }
+    }
+
+    // MARK: - User permissions
+
+    /// Reads one user's panel permissions and scan-to-email "From" address.
+    func loadPermissions(for u: DeviceUser) async -> UserPermissions? {
+        usersError = nil
+        do { return try await client.getUserPermissions(userID: u.userID) }
+        catch { usersError = error.localizedDescription; return nil }
+    }
+
+    /// The device's numbered permission groups. An empty list means the device does
+    /// not offer them, which is not an error worth showing.
+    func loadAuthorizationGroups() async -> [AuthorizationGroup] {
+        (try? await client.authorizationGroups()) ?? []
+    }
+
+    /// Applies permissions, then re-reads to confirm the device stored them.
+    /// Returns the record as the device now holds it, or nil if the write failed.
+    @discardableResult
+    func savePermissions(for u: DeviceUser, _ wanted: UserPermissions) async -> UserPermissions? {
+        usersError = nil
+        do {
+            try await client.setUserPermissions(userID: u.userID, userType: u.userType, wanted)
+            let saved = try await client.getUserPermissions(userID: u.userID)
+            for (service, permission) in wanted.access where saved.access[service] != permission {
+                usersError = "The device did not store the \(service.rawValue.lowercased()) permission (asked for \(permission.label), reads \(saved.access[service]?.label ?? "nothing"))."
+                return saved
+            }
+            if let login = wanted.login, saved.login != login {
+                usersError = "The device did not store the login options (asked for \(login.label), reads \(saved.login?.label ?? "nothing"))."
+            } else if let role = wanted.role, saved.role != role {
+                usersError = "The device did not store the user role (asked for \(role.label), reads \(saved.role?.label ?? "nothing"))."
+            } else if let group = wanted.group, saved.group?.number != group.number {
+                usersError = "The device did not store the permission group (asked for \(group.label), reads \(saved.group?.label ?? "nothing"))."
+            }
+            return saved
+        } catch { usersError = error.localizedDescription; return nil }
+    }
+
+    /// Sets the address a user's scans are sent from, confirming by re-reading.
+    @discardableResult
+    func saveMailAddress(for u: DeviceUser, _ address: String) async -> UserPermissions? {
+        usersError = nil
+        do {
+            try await client.setUserMailAddress(userID: u.userID, userType: u.userType, address)
+            let saved = try await client.getUserPermissions(userID: u.userID)
+            if (saved.mailAddress ?? "") != address {
+                usersError = "The device accepted the address but reads back '\(saved.mailAddress ?? "")'."
+            }
+            return saved
+        } catch { usersError = error.localizedDescription; return nil }
     }
 
     func loadAccounting() async {

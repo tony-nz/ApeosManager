@@ -31,6 +31,12 @@ extension ApeosClient {
     }
 }
 
+/// The same file, under the name that fits when the traffic is not SOAP. The JSON
+/// address book writes are logged here too: they are the calls whose accepted body shape
+/// had to be discovered by trying, so a record of what was sent is what makes the next
+/// failure diagnosable.
+typealias DeviceLog = SoapLog
+
 enum SoapLog {
     private static let queue = DispatchQueue(label: "nz.co.myers.ApeosManager.soaplog")
     private static let url: URL? = {
@@ -427,19 +433,33 @@ extension ApeosClient {
     /// Authentication/UserName. Writing Accounting/UserName returns HTTP 200 with no
     /// fault and silently discards the value, so a success response proves nothing
     /// here -- the caller re-reads to confirm.
-    /// Sets accounting limits for a user. The device's own UI writes these as an
-    /// Accounting block keyed by UserType/UserID with one Usage{Type, Limit} per meter;
-    /// Used and Remaining are read-only and must not be sent.
+    /// Sets accounting limits for a user. The limits themselves go in an Accounting
+    /// block keyed by UserType/UserID with one Usage{Type, Limit} per meter; Used and
+    /// Remaining are read-only and must not be sent.
+    ///
+    /// The Authentication block is not redundant with the one inside Accounting. The
+    /// User element is a schema sequence, and the device identifies the record it is
+    /// writing from Authentication; sending Accounting on its own answered HTTP 200
+    /// carrying a per-entry flt:InternalError and applied nothing, while every
+    /// SetUserInformation that has ever succeeded here -- including one whose payload
+    /// was an Accounting block -- led with Authentication.
     func setUsageLimits(_ u: DeviceUser, limits: [String: Int]) async throws {
         guard !limits.isEmpty else { return }
-        let entries = limits.sorted { $0.key < $1.key }.map { type, limit in
-            "<o:Usage><o:Type>\(type)</o:Type><o:Limit>\(limit)</o:Limit></o:Usage>"
+        // Emitted in the device's own reporting order (colour before mono, Copy/Print/
+        // Scan), not sorted by name: this is a schema sequence, and alphabetical order
+        // would put CopyBW ahead of CopyColor -- the reverse of how the device lists them.
+        let entries = UsageMeter.allTypes.compactMap { type in
+            limits[type].map { "<o:Usage><o:Type>\(type)</o:Type><o:Limit>\($0)</o:Limit></o:Usage>" }
         }.joined()
-        let inner = """
-        <o:Users><o:User><o:Accounting>\
+        let ident = """
         <o:UserType>\(u.userType)</o:UserType>\
-        <o:UserID>\(Self.xmlEscape(u.userID))</o:UserID>\
-        \(entries)</o:Accounting></o:User></o:Users>
+        <o:UserID>\(Self.xmlEscape(u.userID))</o:UserID>
+        """
+        let inner = """
+        <o:Users><o:User>\
+        <o:Authentication>\(ident)</o:Authentication>\
+        <o:Accounting>\(ident)\(entries)</o:Accounting>\
+        </o:User></o:Users>
         """
         try await soap(service: Soap.user, path: Soap.userPath,
                        operation: "SetUserInformation", inner: inner)
@@ -507,5 +527,232 @@ extension ApeosClient {
         let v = ((try? el.nodes(forXPath: ".//*[local-name()='\(name)']").first) ?? nil)?.stringValue
         let t = v?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (t?.isEmpty ?? true) ? nil : t
+    }
+}
+
+// MARK: - User permissions and e-mail address
+
+/// The per-user permission fields, and the "From" address used when that user scans to
+/// e-mail. Both live on `GetUserInformation`/`SetUserInformation` alongside the
+/// accounting meters, under paths the device's own account page selects:
+///
+/// - `Authentication/MailAddress`
+/// - `Authentication/ProhibitLoginWith/{ManualEntry,CardEntry}`
+/// - `Authorization/TraditionalRole`
+/// - `Authorization/PermissionGroup/{Index,Name}`
+/// - `Authorization/ColorModePermission/{Copy,Fax,Scan,Print}`
+extension ApeosClient {
+
+    /// Every field, for a device with a fax, a card reader and colour.
+    private static let permissionPaths = [
+        "Authentication/UserID",
+        "Authentication/UserType",
+        "Authentication/ProhibitLoginWith/ManualEntry",
+        "Authentication/ProhibitLoginWith/CardEntry",
+        "Authentication/MailAddress",
+        "Authorization/TraditionalRole",
+        "Authorization/PermissionGroup/Index",
+        "Authorization/PermissionGroup/Name",
+        "Authorization/ColorModePermission/Copy",
+        "Authorization/ColorModePermission/Fax",
+        "Authorization/ColorModePermission/Scan",
+        "Authorization/ColorModePermission/Print",
+    ]
+
+    /// Without the two optional accessories. A `Responds` path naming an element the
+    /// model does not have is answered `flt:InvalidMessage` for the whole request, so
+    /// the ones that depend on hardware are dropped before giving up altogether.
+    private static let permissionPathsLean = permissionPaths.filter {
+        !$0.hasSuffix("CardEntry") && !$0.hasSuffix("ColorModePermission/Fax")
+    }
+
+    /// The e-mail address on its own -- the last thing worth asking for if the
+    /// permission elements are not available on this model.
+    private static let mailOnlyPaths = [
+        "Authentication/UserID", "Authentication/UserType", "Authentication/MailAddress",
+    ]
+
+    /// Reads one user's permission and e-mail fields.
+    ///
+    /// Falls back through progressively smaller field sets, because the device answers
+    /// a request naming an element it does not implement with a fault covering the
+    /// whole request rather than by omitting that one value.
+    func getUserPermissions(userID: String) async throws -> UserPermissions {
+        var lastFault: Error?
+        for paths in [Self.permissionPaths, Self.permissionPathsLean, Self.mailOnlyPaths] {
+            do {
+                return try await withUserRecord(userID: userID, responds: paths) {
+                    Self.parsePermissions($0)
+                }
+            } catch let error as ApeosError {
+                guard case .soapFault(let code, _) = error, code.contains("InvalidMessage") else {
+                    throw error
+                }
+                lastFault = error
+            }
+        }
+        throw lastFault ?? ApeosError.decoding("no permission fields for user '\(userID)'")
+    }
+
+    /// Writes the permission fields, in the device's own two steps: the panel
+    /// permissions here, the e-mail address separately.
+    ///
+    /// Only fields present in `permissions` are sent. A nil field means the device
+    /// never reported it, and sending it anyway is what draws `flt:InvalidMessage`.
+    func setUserPermissions(userID: String, userType: String, _ p: UserPermissions) async throws {
+        var auth = """
+        <o:UserType>\(userType)</o:UserType>\
+        <o:UserID>\(Self.xmlEscape(userID))</o:UserID>
+        """
+        // Element order is the schema's, not ours: User, Authentication and
+        // Authorization are all sequences, and out-of-order children are rejected.
+        if let login = p.login {
+            auth += "<o:ProhibitLoginWith><o:ManualEntry>\(login.prohibitsManualEntry)</o:ManualEntry>"
+            if p.cardLoginSupported {
+                auth += "<o:CardEntry>\(login.prohibitsCardEntry)</o:CardEntry>"
+            }
+            auth += "</o:ProhibitLoginWith>"
+        }
+
+        var authz = ""
+        if let role = p.role {
+            authz += "<o:TraditionalRole>\(role.rawValue)</o:TraditionalRole>"
+        }
+        if let group = p.group {
+            // Index and Name travel together; the device's own editor sends both.
+            authz += """
+            <o:PermissionGroup><o:Index>\(group.number)</o:Index>\
+            <o:Name>\(Self.xmlEscape(group.name))</o:Name></o:PermissionGroup>
+            """
+        }
+        let modes = PermissionService.allCases.compactMap { service in
+            p.access[service].map { "<o:\(service.rawValue)>\($0.rawValue)</o:\(service.rawValue)>" }
+        }.joined()
+        if !modes.isEmpty { authz += "<o:ColorModePermission>\(modes)</o:ColorModePermission>" }
+
+        guard !authz.isEmpty || p.login != nil else { return }
+        let inner = """
+        <o:Users><o:User><o:Authentication>\(auth)</o:Authentication>\
+        \(authz.isEmpty ? "" : "<o:Authorization>\(authz)</o:Authorization>")\
+        </o:User></o:Users>
+        """
+        try await soap(service: Soap.user, path: Soap.userPath,
+                       operation: "SetUserInformation", inner: inner)
+    }
+
+    /// Sets the address a user's scans are sent "From". An empty string clears it.
+    func setUserMailAddress(userID: String, userType: String, _ address: String) async throws {
+        let inner = """
+        <o:Users><o:User><o:Authentication>\
+        <o:UserType>\(userType)</o:UserType>\
+        <o:UserID>\(Self.xmlEscape(userID))</o:UserID>\
+        <o:MailAddress>\(Self.xmlEscape(address))</o:MailAddress>\
+        </o:Authentication></o:User></o:Users>
+        """
+        try await soap(service: Soap.user, path: Soap.userPath,
+                       operation: "SetUserInformation", inner: inner)
+    }
+
+    // MARK: Reading one record
+
+    /// Runs `parse` over one user's `User` element.
+    ///
+    /// The device's own account page narrows `GetUserInformation` to a single record
+    /// with a leading `UserIDs/UserID` -- the first element of that operation's
+    /// sequence, and the only filter shape the device accepts. Should a model ignore
+    /// or reject it the collection is walked instead, which also tells a rejected
+    /// filter apart from a `Responds` path the model does not implement: only the
+    /// latter faults on the unfiltered request too.
+    ///
+    /// The parsing happens in a closure because an XMLElement is only a back-pointer
+    /// into its document; returning one outlives the document and yields nothing.
+    private func withUserRecord<T>(userID: String, responds paths: [String],
+                                   _ parse: (XMLElement) -> T) async throws -> T {
+        let filter = "<o:UserIDs><o:UserID>\(Self.xmlEscape(userID))</o:UserID></o:UserIDs>"
+        do {
+            let doc = try await soap(service: Soap.user, path: Soap.userPath,
+                                     operation: "GetUserInformation",
+                                     inner: filter + responds(paths))
+            if let el = Self.userElement(in: doc, userID: userID) { return parse(el) }
+        } catch let ApeosError.soapFault(code, message) {
+            guard code.contains("InvalidMessage") else {
+                throw ApeosError.soapFault(code, message)
+            }
+        }
+
+        var offset = 0
+        let pageSize = 50
+        for _ in 0..<200 {
+            let inner = """
+            <o:UserTypes><o:UserType>KO</o:UserType><o:UserType>CO</o:UserType></o:UserTypes>\
+            <o:Sort><cmn:Key order="ascending">UserID</cmn:Key></o:Sort>\
+            <o:Scope><cmn:Offset>\(offset)</cmn:Offset><cmn:Limit>\(pageSize)</cmn:Limit></o:Scope>
+            """ + responds(paths)
+            let doc = try await soap(service: Soap.user, path: Soap.userPath,
+                                     operation: "GetUserInformation", inner: inner)
+            let count = ((try? doc.nodes(forXPath: "//*[local-name()='User']")) ?? []).count
+            guard count > 0 else { break }
+            if let el = Self.userElement(in: doc, userID: userID) { return parse(el) }
+            offset += count
+        }
+        throw ApeosError.decoding("the device did not return a record for user '\(userID)'")
+    }
+
+    private static func userElement(in doc: XMLDocument, userID: String) -> XMLElement? {
+        let nodes = (try? doc.nodes(forXPath: "//*[local-name()='User']")) ?? []
+        return nodes.compactMap { $0 as? XMLElement }
+                    .first { descendant($0, "UserID") == userID }
+    }
+
+    private static func parsePermissions(_ el: XMLElement) -> UserPermissions {
+        var out = UserPermissions()
+
+        // MailAddress is reported as an empty element when unset, which is a different
+        // thing from a device that does not report it at all -- the first is editable,
+        // the second must not be written. `descendant` maps empty to nil, so presence
+        // is decided on the element rather than its value.
+        if element(el, "MailAddress") != nil {
+            out.mailAddress = descendant(el, "MailAddress") ?? ""
+        }
+
+        if let login = element(el, "ProhibitLoginWith") {
+            let card = trimmedChild(login, "CardEntry").flatMap(Self.bool)
+            out.cardLoginSupported = card != nil
+            out.login = LoginPermission(
+                prohibitsManualEntry: trimmedChild(login, "ManualEntry").flatMap(Self.bool) ?? false,
+                prohibitsCardEntry: card)
+        }
+
+        out.role = descendant(el, "TraditionalRole").flatMap(TraditionalRole.init(rawValue:))
+
+        if let group = element(el, "PermissionGroup"),
+           let index = trimmedChild(group, "Index").flatMap(Int.init) {
+            // Scoped to the element: `Name` also appears under Authorization/Role/RoleID.
+            out.group = AuthorizationGroup(number: index, name: trimmedChild(group, "Name") ?? "")
+        }
+
+        if let modes = element(el, "ColorModePermission") {
+            for service in PermissionService.allCases {
+                if let value = trimmedChild(modes, service.rawValue),
+                   let permission = FeaturePermission(rawValue: value) {
+                    out.access[service] = permission
+                }
+            }
+        }
+        return out
+    }
+
+    private static func element(_ el: XMLElement, _ name: String) -> XMLElement? {
+        ((try? el.nodes(forXPath: ".//*[local-name()='\(name)']").first) ?? nil) as? XMLElement
+    }
+
+    private static func trimmedChild(_ el: XMLElement, _ name: String) -> String? {
+        let v = child(el, name)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (v?.isEmpty ?? true) ? nil : v
+    }
+
+    /// The device writes these as "true"/"false"; some models answer "1"/"0".
+    private static func bool(_ s: String) -> Bool {
+        s == "true" || s == "1"
     }
 }
