@@ -20,6 +20,16 @@ The project builds two apps from one shared core:
 `Sources/Shared` holds the models and the transport both use; `Sources/Admin` and
 `Sources/Quota` hold one app each.
 
+[![The fleet overview. A Needs Attention panel lists a spent cyan drum and a fuser at
+four per cent on Design Studio, and three low consumables on Accounts Copy Room. Below,
+printer cards show Design Studio badged Ready, Goods In unreachable, and Branch Desk 3
+asking for an administrator sign-in.](docs/screenshots/fleet-overview.png)](docs/screenshots/fleet-overview.png)
+
+The reason for the app, in one screen. **Design Studio reports "Ready"** — its own panel
+and its status endpoint both say so — while the drum inside it is finished and its fuser
+has four per cent left. A device that reports its own trouble needs no fleet manager to
+find it; the one that does not is the reason this exists.
+
 ## Features
 
 - **Fleet overview** — status, toner and drum levels, counters, and a "needs attention"
@@ -68,6 +78,21 @@ Three constraints shape it, each measured against hardware:
 - **Sessions are scarce.** These devices allow only a few at once and this app runs on
   every desk, so each refresh signs in, reads, and signs out; nothing is held between
   refreshes. The default interval is 15 minutes.
+
+## Screenshots
+
+Click any of these to see it full size. All were taken from the demo fleet below, with
+`tools/shots/capture.sh` — there is more of the tour on the
+[site](https://tony-nz.github.io/ApeosManager/#screenshots).
+
+| | |
+| --- | --- |
+| [![The fleet-wide Users list: accounts with ID, name, type and role, a count of how many printers hold each account, and a tick per printer column.](docs/screenshots/fleet-users.png)](docs/screenshots/fleet-users.png) | [![A printer fault log: code 010-320 listed eleven times over a fortnight, each row marked eleven times on this printer.](docs/screenshots/printer-faults.png)](docs/screenshots/printer-faults.png) |
+| **Users across the fleet** — every account, and which printers hold it. | **Fault logs** — repeats counted, because one is noise and eleven is a service call. |
+| [![One printer's overview: header reading Ready, four toner gauges near seventy per cent, and below them Drum Cyan at zero per cent marked Exchange Time and the fuser at four per cent.](docs/screenshots/printer-overview.png)](docs/screenshots/printer-overview.png) | [![Job history for one printer: date, user, type, colour, paper size, sheets, impressions, copies and state.](docs/screenshots/printer-jobs.png)](docs/screenshots/printer-jobs.png) |
+| **One printer** — toner, drums, consumables and counters. | **Job history** — who printed what, per printer and fleet-wide. |
+| [![The Apeos Quota menu bar popover showing four capped meters close to their limits, two uncapped scan meters, and a warning that one printer could not be read.](docs/screenshots/quota-menu-bar.png)](docs/screenshots/quota-menu-bar.png) | [![The Balance window: 423 Copy Black and White remaining marked partial, with all five printers listed — one unreachable and one showing no account.](docs/screenshots/quota-balance.png)](docs/screenshots/quota-balance.png) |
+| **Apeos Quota** — what is left, in your menu bar. | **Balance** — and where each printer stands, including the ones that failed. |
 
 ## Try it without a printer
 
