@@ -218,10 +218,18 @@
       </figure>
       <p>
         <strong>Trays</strong> lists each tray's size, media type, colour and level.
-        <strong>Settings</strong> shows the device's own identity fields &mdash; friendly
-        name, location, and administrator contact details &mdash; and can write them
-        back.
       </p>
+      <figure>
+        <img src="screenshots/printer-settings.png"
+             alt="A printer's Settings tab: editable friendly name, location and comment;
+                  administrator name, email, phone and location; and a read-only block
+                  giving host name, serial number, firmware, IP address and device
+                  email.">
+        <figcaption>
+          <strong>Settings.</strong> The device's own identity fields, written back to the
+          printer. What it will not let you change is shown read-only rather than omitted.
+        </figcaption>
+      </figure>
     </section>
 
     <section id="users">
@@ -250,6 +258,62 @@
         devices accept some requests without applying them, and answer HTTP 200 either
         way.
       </p>
+
+      <h3>Adding a user</h3>
+      <p>
+        The sheet has four panes. Only <strong>Details</strong> and
+        <strong>Printers</strong> are required; the other two are applied after the
+        account exists, because these devices reject a creation request that tries to set
+        accounting or permissions at the same time.
+      </p>
+
+      <figure>
+        <img src="screenshots/add-user-details.png"
+             alt="The Add User sheet on its Details pane: user ID 2061, display name
+                  Stock Room Desk, type User, an optional password field, and an email
+                  address with a switch to add it to the address book as well.">
+        <figcaption>
+          <strong>Details.</strong> The email address sets the sender used when this user
+          scans to email, and optionally files them in the address book so others can
+          scan to them by name.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <img src="screenshots/add-user-printers.png"
+             alt="The Printers pane: five printers with checkboxes, three ticked and
+                  marked three selected. The two that are not signed in are shown in
+                  amber and left unticked.">
+        <figcaption>
+          <strong>Printers.</strong> Which devices get the account. A printer this app is
+          not signed in to cannot be written to, so it is marked rather than silently
+          failing halfway through.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <img src="screenshots/add-user-usage.png"
+             alt="The Usage pane: copy, print and scan meters in colour and mono, with
+                  copy colour capped at 200, print colour at 250, print black and white
+                  at 1000, and both scan meters left unlimited.">
+        <figcaption>
+          <strong>Usage.</strong> Caps for the new account. Anything left as
+          <em>Unlimited</em> writes the device's own sentinel rather than a number.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <img src="screenshots/add-user-permissions.png"
+             alt="The Permissions pane: seven dropdowns for copy, fax, scan and print
+                  access, login options, user role and permission group, each set to
+                  Device default.">
+        <figcaption>
+          <strong>Permissions.</strong> Every field starts at <em>Device default</em>, and
+          anything left there is not written at all &mdash; so the printer's own defaults
+          survive untouched. The fields offered are the ones the first selected printer
+          actually reported.
+        </figcaption>
+      </figure>
     </section>
 
     <section id="usage">
@@ -266,6 +330,17 @@
         <code>9999999</code> where no cap is set. The apps read that as
         <em>unlimited</em> rather than as a very large allowance.
       </p>
+      <figure>
+        <img src="screenshots/edit-user-usage.png"
+             alt="Editing a user's usage: a printer picker set to Reception, then copy
+                  colour at 190 of 200, copy black and white at 1,431 of 1,500, print
+                  colour at 238 of 250 and print black and white at 954 of 1,000, each
+                  with an amber bar, and both scan meters unlimited.">
+        <figcaption>
+          Meters are per printer, because the devices hold their own counts and disagree.
+          The picker switches between them.
+        </figcaption>
+      </figure>
       <p>
         Limits are editable per user, and counters can be reset. After each write the
         record is read back and any value the device did not store is reported against
@@ -275,6 +350,14 @@
 
     <section id="permissions">
       <h2>Permissions</h2>
+      <figure>
+        <img src="screenshots/edit-user-permissions.png"
+             alt="A user's permissions on one printer: copy set to Black and White and
+                  Low-Price Colour, fax and scan to Free Access, print to Black and White
+                  Only, login to User ID or Card Login, role Local User, permission group
+                  02 Mono Only, and an email From address.">
+        <figcaption>Read from the device, and written back only where changed.</figcaption>
+      </figure>
       <p>Per user, per printer:</p>
       <ul>
         <li><strong>Feature access</strong> for copy, fax, scan and print. The available

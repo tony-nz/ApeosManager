@@ -23,7 +23,7 @@ SIDEBAR=240        # the sidebar's own width, which the detail pane starts after
 WHICH=${1:-all}
 
 mkdir -p "$OUT" bin
-for t in winlist click axwin focus key; do
+for t in winlist click axwin focus key type; do
     [ tools/shots/$t.swift -nt bin/$t ] && swiftc -O -o bin/$t tools/shots/$t.swift
 done
 
@@ -39,7 +39,8 @@ win_click() {
 # The detail pane's tab bar is centred in the pane, so a tab's x follows the window
 # width. Offsets are measured from that centre once, and survive a resize.
 tab_x() { echo $(( SIDEBAR + (W - SIDEBAR) / 2 + $1 )); }
-TAB_OVERVIEW=-184; TAB_TRAYS=-115; TAB_ACCOUNTS=24; TAB_LOGS=195
+TAB_OVERVIEW=-184; TAB_TRAYS=-115; TAB_SETTINGS=-51; TAB_ACCOUNTS=24
+TAB_BOOK=116; TAB_LOGS=195
 TAB_Y=136
 # Sidebar rows, measured from a `-o` capture scaled 1:1 with window points. Measuring
 # from a shadowed capture instead is the easy mistake: the shadow pads the image, so
@@ -87,9 +88,15 @@ capture_manager() {
     win_click 405 163;    shot "$pid" printer-faults        # its one repeating code
     win_click "$(tab_x $TAB_TRAYS)" $TAB_Y
     shot "$pid" printer-trays                               # and its empty A3 tray
+    win_click "$(tab_x $TAB_SETTINGS)" $TAB_Y
+    shot "$pid" printer-settings                            # the device's own identity
+
     win_click $SB_X $SB_ACCOUNTS_ROOM 2.5                   # Accounts Copy Room
     win_click "$(tab_x $TAB_ACCOUNTS)" $TAB_Y
     shot "$pid" printer-accounts
+
+    capture_add_user "$pid"
+    capture_edit_user "$pid"
 
     # Last, because it is a sheet: one left open silently blocks every click after it,
     # which is why it is dismissed rather than left for the next run to trip over.
@@ -97,6 +104,69 @@ capture_manager() {
     win_click 852 318 4.5                                   # Scan Network, then let it run
     shot "$pid" add-printer                                 # the sweep, with results
     ./bin/key 53
+}
+
+# The Add User sheet. Four panes, and each is worth its own shot: the sheet is where
+# most of what this app does for an administrator actually happens.
+#
+# Every pane is entered by clicking its tab first. Assuming the sheet is still on the
+# pane the last shot left it on is how a run ends up typing usage limits into the
+# permissions pickers.
+capture_add_user() {
+    local pid=$1
+    local ADD_USER_X=1214 ADD_USER_Y=79
+    local T_DETAILS=457 T_PRINTERS=592 T_USAGE=727 T_PERMS=861 T_Y=185
+
+    win_click $SB_X $SB_USERS 2.0                           # the fleet Users screen
+    win_click $ADD_USER_X $ADD_USER_Y 2.5
+
+    win_click $T_DETAILS $T_Y
+    win_click 660 249; ./bin/type "2061"
+    win_click 660 286; ./bin/type "Stock Room Desk"
+    win_click 660 452; ./bin/type "stockroom@example.net"
+    sleep 1
+    shot "$pid" add-user-details
+
+    win_click $T_PRINTERS $T_Y 1.2
+    win_click 402 274; win_click 402 310; win_click 402 382  # the three signed in
+    sleep 1
+    shot "$pid" add-user-printers
+
+    win_click $T_USAGE $T_Y 1.2
+    win_click 636 243; win_click 573 243; ./bin/type "200"   # copy colour
+    win_click 636 328; win_click 573 328; ./bin/type "250"   # print colour
+    win_click 636 356; win_click 573 356; ./bin/type "1000"  # print mono
+    sleep 1
+    shot "$pid" add-user-usage
+
+    win_click $T_PERMS $T_Y 2.5
+    shot "$pid" add-user-permissions
+
+    ./bin/key 53                                             # discard; nothing is written
+    sleep 1
+}
+
+# Editing an existing account, which differs from creating one: the usage and permission
+# panes are per printer, because the devices hold their own copies and disagree.
+capture_edit_user() {
+    local pid=$1
+    local EDIT_X=1041 EDIT_Y=79
+    # Same tab positions as the Add User sheet, but 27pt lower: this one carries the
+    # account's name and printer count above the tabs.
+    local T_USAGE=727 T_PERMS=861 T_Y=212
+
+    win_click $SB_X $SB_USERS 2.0
+    win_click 500 169 1.2                                    # select 2041 Reception Desk
+    win_click $EDIT_X $EDIT_Y 2.5
+
+    win_click $T_USAGE $T_Y 1.5
+    shot "$pid" edit-user-usage
+
+    win_click $T_PERMS $T_Y 2.5
+    shot "$pid" edit-user-permissions
+
+    ./bin/key 53
+    sleep 1
 }
 
 capture_quota() {
