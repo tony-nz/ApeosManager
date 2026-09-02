@@ -6,6 +6,10 @@ and job and fault logs — across every printer at once.
 
 Built against Apeos C6570 / C3570 / C3530 devices. No vendor SDK is required.
 
+**[Overview and screenshots](https://tony-nz.github.io/ApeosManager/)** ·
+**[Documentation](https://tony-nz.github.io/ApeosManager/documentation.html)** ·
+**[Download](https://github.com/tony-nz/ApeosManager/releases/latest)**
+
 The project builds two apps from one shared core:
 
 | App | For | What it does |
@@ -65,6 +69,24 @@ Three constraints shape it, each measured against hardware:
   every desk, so each refresh signs in, reads, and signs out; nothing is held between
   refreshes. The default interval is 15 minutes.
 
+## Try it without a printer
+
+Both apps contain a fictional fleet. Launch either with `-demoMode YES`:
+
+```sh
+/Applications/Apeos\ Manager.app/Contents/MacOS/ApeosManager -demoMode YES
+/Applications/Apeos\ Quota.app/Contents/MacOS/ApeosQuota     -demoMode YES
+```
+
+Five printers and nineteen accounts, holding one of every state the apps distinguish:
+unreachable, low on toner, refusing reads without an administrator session, and a device
+reporting itself Ready while a drum inside it is spent. Every screenshot on the site was
+taken from it, with `tools/shots/capture.sh`.
+
+A demo run contacts nothing on your network, reads no credential from your keychain and
+writes nothing to your settings — `ApeosClient.init` throws under the flag, so there is
+no path by which it could. See `Sources/Shared/Demo/DemoMode.swift`.
+
 ## Building
 
 Requires Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
@@ -79,6 +101,19 @@ export APEOS_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
 
 Signing is not optional in practice: keychain access is bound to the app's code
 identity, so an unsigned build cannot read printer passwords saved by a previous build.
+
+### Releases
+
+```sh
+./Scripts/release.sh 1.0.0 --skip-notarize   # build and sign only; not distributable
+./Scripts/release.sh 1.0.0                   # build, sign, notarise, staple
+./Scripts/release.sh 1.0.0 --publish         # ...then tag, push and create the release
+```
+
+Both apps ship in one zip, universal, signed with a Developer ID certificate and
+notarised. The script refuses to run on a dirty tree, over an existing tag, without a
+Developer ID certificate or notary credentials, or if a bundle would be signed under an
+identifier that does not match the one its keychain items were saved under.
 
 ## The device API
 
