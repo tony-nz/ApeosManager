@@ -141,7 +141,24 @@ struct AddPrinterSheet: View {
     private func probe() async {
         probing = true; defer { probing = false }
         let trimmed = host.trimmingCharacters(in: .whitespaces)
-        let client = ApeosClient(host: trimmed)
+
+        // A demo answers from the fixture. Nothing on this network is contacted.
+        if DemoMode.isEnabled {
+            guard let demo = DemoFleet.printer(host: trimmed) else {
+                probeResult = "No demonstration printer at that address. "
+                    + "Try \(DemoFleet.printers[0].host)."
+                return
+            }
+            if name.isEmpty { name = demo.name }
+            probeResult = "Found \(demo.name) — serial \(demo.serial), "
+                + "firmware \(demo.firmware)."
+            return
+        }
+
+        let client: ApeosClient
+        do { client = try ApeosClient(host: trimmed) }
+        catch { probeResult = error.localizedDescription; return }
+
         do {
             let about = try await client.about()
             if name.isEmpty { name = about.devFrndlName }

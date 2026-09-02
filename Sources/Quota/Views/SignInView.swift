@@ -241,10 +241,25 @@ struct SignInView: View {
         defer { checking = false }
 
         let id = userID.trimmed
+
+        // A demo signs in against the fixture: any of its user IDs is accepted, with
+        // any passcode, and nothing is contacted or stored.
+        if DemoMode.isEnabled {
+            guard DemoFleet.users.contains(where: { $0.userID == id }) else {
+                error = "No such user on the demonstration fleet. "
+                    + "Try \(DemoFleet.demoUserID)."
+                return
+            }
+            settings.signIn(userID: id, passcode: passcode)
+            passcode = ""
+            onSignedIn()
+            return
+        }
+
         var lastFailure: String?
         for printer in settings.printers {
-            let client = ApeosClient(host: printer.host)
             do {
+                let client = try ApeosClient(host: printer.host)
                 try await client.login(userID: id, password: passcode)
                 await client.logout()
                 settings.signIn(userID: id, passcode: passcode)

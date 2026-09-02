@@ -2,6 +2,10 @@
 build/
 *.xcodeproj/
 DerivedData/
+# Anywhere, not just under build/ -- a stray signed bundle must never be committed.
+*.app/
+# Compiled screenshot helpers.
+bin/
 
 # Captured device responses: these contain real serial numbers, host names,
 # internal addresses and site email addresses. Never commit them.

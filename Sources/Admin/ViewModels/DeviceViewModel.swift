@@ -4,7 +4,10 @@ import SwiftUI
 @MainActor
 final class DeviceViewModel: ObservableObject {
     let printer: Printer
-    private let client: ApeosClient
+    /// Nil only in a demo run, where `ApeosClient.init` refuses to build one.
+    private let client: ApeosClient?
+    /// The fixture this printer stands for, in a demo run. Nil otherwise.
+    private let demo: DemoFleet.DemoPrinter?
 
     @Published var about: DeviceAbout?
     @Published var status: DeviceStatus?
@@ -54,7 +57,20 @@ final class DeviceViewModel: ObservableObject {
     init(printer: Printer, password: String? = nil) {
         self.printer = printer
         self.storedPassword = password
-        self.client = ApeosClient(host: printer.host)
+        self.client = try? ApeosClient(host: printer.host)
+        self.demo = DemoMode.isEnabled ? DemoFleet.printer(host: printer.host) : nil
+    }
+
+    /// The client, or a refusal.
+    ///
+    /// Every path that would use it is served from the fixture in a demo run, so
+    /// reaching this there is a bug -- and throwing says so, loudly and locally,
+    /// instead of silently doing nothing and leaving a blank screen to explain.
+    private var api: ApeosClient {
+        get throws {
+            guard let client else { throw ApeosError.demoMode }
+            return client
+        }
     }
 
     /// Signs in (when a password is held) and loads everything. Devices differ over
@@ -76,6 +92,17 @@ final class DeviceViewModel: ObservableObject {
     private func performConnect() async {
         defer { connectTask = nil }
         guard !isConnected else { return }
+        if let demo {
+            isConnected = true
+            // Signed in wherever an operator would have saved a password. Branch Desk 3
+            // is the one with none, which is exactly what makes it the reachable-but-
+            // refusing case rather than a second copy of the unreachable one.
+            isSignedIn = demo.isReachable && !demo.refusesAnonymousReads
+            await refresh()
+            await loadDirectory()
+            await loadAccounting()
+            return
+        }
         if let storedPassword, !storedPassword.isEmpty, !isSignedIn {
             await signIn(password: storedPassword)
             // Latched only once the attempt settled. Marking the printer connected
@@ -98,7 +125,8 @@ final class DeviceViewModel: ObservableObject {
         jobLimit += 100
         loadingMoreJobs = true
         defer { loadingMoreJobs = false }
-        do { jobs = try await client.jobHistory(max: jobLimit) }
+        if let demo { jobs = DemoFleet.jobs(demo, max: jobLimit); return }
+        do { jobs = try await api.jobHistory(max: jobLimit) }
         catch { errorMessage = error.localizedDescription }
     }
 
@@ -120,6 +148,11 @@ final class DeviceViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
 
+        if let demo {
+            await demoRefresh(demo)
+            return
+        }
+
         var failures: [String] = []
         var needsAuth = false
 
@@ -132,14 +165,14 @@ final class DeviceViewModel: ObservableObject {
             catch { failures.append("\(label): \(error.localizedDescription)") }
         }
 
-        await run("device info")  { about    = try await client.about() }
-        await run("status")       { status   = try await client.status() }
-        await run("supplies")     { supplies = try await client.supplies().supplies }
-        await run("counters")     { counters = try await client.counters().usageCounters }
-        await run("trays")        { trays    = try await client.trays().paperTrays }
-        await run("fault log")    { faults   = try await client.faultHistory().faultHistory }
-        await run("job history")  { jobs     = try await client.jobHistory(max: jobLimit) }
-        await run("address book") { contacts = try await client.addressBook() }
+        await run("device info")  { about    = try await api.about() }
+        await run("status")       { status   = try await api.status() }
+        await run("supplies")     { supplies = try await api.supplies().supplies }
+        await run("counters")     { counters = try await api.counters().usageCounters }
+        await run("trays")        { trays    = try await api.trays().paperTrays }
+        await run("fault log")    { faults   = try await api.faultHistory().faultHistory }
+        await run("job history")  { jobs     = try await api.jobHistory(max: jobLimit) }
+        await run("address book") { contacts = try await api.addressBook() }
 
         lastRefresh = Date()
         if failures.isEmpty {
@@ -154,8 +187,18 @@ final class DeviceViewModel: ObservableObject {
     func signIn(password: String) async {
         errorMessage = nil
         lastSignInCancelled = false
+        if let demo {
+            // Any password is accepted: the demo has no credential to check one
+            // against, and refusing the operator's guess would only be theatre.
+            guard !password.isEmpty else { return }
+            isSignedIn = true
+            await demoRefresh(demo)
+            await loadDirectory()
+            await loadAccounting()
+            return
+        }
         do {
-            let result = try await client.login(userID: printer.adminUser, password: password)
+            let result = try await api.login(userID: printer.adminUser, password: password)
             isSignedIn = true
             notice = result.passwordChangeRequired != nil
                 ? "The device is requesting an administrator password change."
@@ -179,7 +222,7 @@ final class DeviceViewModel: ObservableObject {
     }
 
     func signOut() async {
-        await client.logout()
+        if let client { await client.logout() }
         isSignedIn = false
         notice = nil
         accountingJSON = [:]
@@ -193,11 +236,17 @@ final class DeviceViewModel: ObservableObject {
         accountsError = nil; usersError = nil
         defer { loadingAccounts = false }
 
+        if let demo {
+            if users.isEmpty { users = DemoFleet.users(demo) }
+            if accounts.isEmpty { accounts = DemoFleet.accounts(demo) }
+            return
+        }
+
         // Fetched independently: a failure in one must not suppress the other.
-        do { users = try await client.getUsers() }
+        do { users = try await api.getUsers() }
         catch { usersError = error.localizedDescription; users = [] }
 
-        do { accounts = try await client.getAccounts() }
+        do { accounts = try await api.getAccounts() }
         catch let ApeosError.soapFault(code, _) where code.contains("InternalError") {
             // The account service reports an internal error when device accounting
             // is not enabled, which matches AccountingDeviceType == NONE here.
@@ -210,23 +259,45 @@ final class DeviceViewModel: ObservableObject {
 
     func saveAccount(_ a: DeptAccount, isNew: Bool) async {
         accountsError = nil
+        if demo != nil {
+            if let i = accounts.firstIndex(where: { $0.accountID == a.accountID }) {
+                accounts[i] = a
+            } else {
+                accounts.append(a)
+                accounts.sort { $0.accountID < $1.accountID }
+            }
+            return
+        }
         do {
-            if isNew { try await client.addAccount(a) } else { try await client.setAccount(a) }
+            if isNew { try await api.addAccount(a) } else { try await api.setAccount(a) }
             await loadDirectory()
         } catch { accountsError = error.localizedDescription }
     }
 
     func deleteAccount(_ a: DeptAccount) async {
         accountsError = nil
-        do { try await client.deleteAccount(id: a.accountID); await loadDirectory() }
+        if demo != nil { accounts.removeAll { $0.accountID == a.accountID }; return }
+        do { try await api.deleteAccount(id: a.accountID); await loadDirectory() }
         catch { accountsError = error.localizedDescription }
     }
 
     func saveUser(_ u: DeviceUser, password: String?, isNew: Bool) async {
         usersError = nil
+        if demo != nil {
+            if let i = users.firstIndex(where: { $0.userID == u.userID }) {
+                // Meters are the device's to report, not the editor's to set.
+                var edited = u
+                edited.usage = users[i].usage
+                users[i] = edited
+            } else {
+                users.append(u)
+                users.sort { $0.userID < $1.userID }
+            }
+            return
+        }
         do {
-            if isNew { try await client.addUser(u, password: password) }
-            else { try await client.setUser(u) }
+            if isNew { try await api.addUser(u, password: password) }
+            else { try await api.setUser(u) }
             await loadDirectory()
             // The device accepts some writes without applying them, so confirm.
             // This device accepts writes it does not apply, so confirm by re-reading.
@@ -242,8 +313,20 @@ final class DeviceViewModel: ObservableObject {
     /// Applies accounting limits, then re-reads to confirm the device stored them.
     func saveUsageLimits(_ u: DeviceUser, limits: [String: Int]) async {
         usersError = nil
+        if demo != nil {
+            guard let i = users.firstIndex(where: { $0.userID == u.userID }) else { return }
+            users[i].usage = users[i].usage.map { meter in
+                guard let wanted = limits[meter.type] else { return meter }
+                var updated = meter
+                updated.limit = wanted
+                updated.remaining = wanted >= UsageMeter.unlimited
+                    ? nil : max(0, wanted - meter.used)
+                return updated
+            }
+            return
+        }
         do {
-            try await client.setUsageLimits(u, limits: limits)
+            try await api.setUsageLimits(u, limits: limits)
             await loadDirectory()
             if let saved = users.first(where: { $0.userID == u.userID }) {
                 for (type, wanted) in limits {
@@ -279,8 +362,14 @@ final class DeviceViewModel: ObservableObject {
         favouritesInFlight.insert(contact.contactId)
         defer { favouritesInFlight.remove(contact.contactId) }
 
+        if demo != nil {
+            if let i = contacts.firstIndex(where: { $0.contactId == contact.contactId }) {
+                contacts[i] = contacts[i].settingFavorite(value)
+            }
+            return true
+        }
         do {
-            let stored = try await client.setFavorite(contactId: contact.contactId, to: value)
+            let stored = try await api.setFavorite(contactId: contact.contactId, to: value)
             if let i = contacts.firstIndex(where: { $0.contactId == contact.contactId }) {
                 contacts[i] = contacts[i].settingFavorite(stored)
             }
@@ -311,9 +400,19 @@ final class DeviceViewModel: ObservableObject {
     /// inside the client, because the endpoint answers 200 to creates it discards.
     func addContact(named name: String, email: String) async -> Bool {
         contactsError = nil
+        if demo != nil {
+            let id = String((contacts.compactMap { Int($0.contactId) }.max() ?? 0) + 1)
+            contacts.append(Contact(contactId: id, contactType: "PERSON", favorite: false,
+                                    displayName: name, lastName: "", firstName: "",
+                                    company: "", key: name,
+                                    destinations: [Destination(destId: "\(id)-1", type: "MAIL",
+                                                               oneTouchKeyId: nil, target: email)]))
+            contacts.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return true
+        }
         do {
-            try await client.addContact(displayName: name, email: email)
-            contacts = (try? await client.addressBook()) ?? contacts
+            try await api.addContact(displayName: name, email: email)
+            contacts = (try? await api.addressBook()) ?? contacts
             return true
         } catch {
             contactsError = "\(printer.name): \(error.localizedDescription)"
@@ -328,10 +427,23 @@ final class DeviceViewModel: ObservableObject {
         guard !favouritesInFlight.contains(c.contactId) else { return false }
         favouritesInFlight.insert(c.contactId)
         defer { favouritesInFlight.remove(c.contactId) }
+        if demo != nil {
+            guard let i = contacts.firstIndex(where: { $0.contactId == c.contactId }) else {
+                return false
+            }
+            contacts[i] = Contact(contactId: c.contactId, contactType: c.contactType,
+                                  favorite: c.favorite, displayName: displayName,
+                                  lastName: c.lastName, firstName: c.firstName,
+                                  company: company, key: displayName,
+                                  destinations: [Destination(destId: "\(c.contactId)-1",
+                                                             type: "MAIL", oneTouchKeyId: nil,
+                                                             target: email)])
+            return true
+        }
         do {
-            try await client.updateContact(id: c.contactId, displayName: displayName,
+            try await api.updateContact(id: c.contactId, displayName: displayName,
                                            company: company, email: email)
-            contacts = (try? await client.addressBook()) ?? contacts
+            contacts = (try? await api.addressBook()) ?? contacts
             return true
         } catch {
             contactsError = "\(printer.name): \(error.localizedDescription)"
@@ -342,12 +454,13 @@ final class DeviceViewModel: ObservableObject {
     /// Removes a contact from this printer's address book.
     func deleteContact(_ c: Contact) async -> Bool {
         contactsError = nil
+        if demo != nil { contacts.removeAll { $0.contactId == c.contactId }; return true }
         do {
-            guard try await client.deleteContact(id: c.contactId) else {
+            guard try await api.deleteContact(id: c.contactId) else {
                 contactsError = "\(printer.name) still lists \(c.name) after the delete."
                 return false
             }
-            contacts = (try? await client.addressBook()) ?? contacts
+            contacts = (try? await api.addressBook()) ?? contacts
             return true
         } catch {
             contactsError = "\(printer.name): \(error.localizedDescription)"
@@ -357,7 +470,15 @@ final class DeviceViewModel: ObservableObject {
 
     func clearUsage(_ u: DeviceUser) async {
         usersError = nil
-        do { try await client.clearUsageCounters(u); await loadDirectory() }
+        if demo != nil {
+            guard let i = users.firstIndex(where: { $0.userID == u.userID }) else { return }
+            users[i].usage = users[i].usage.map {
+                UsageMeter(type: $0.type, limit: $0.limit, used: 0,
+                           remaining: $0.isUnlimited ? nil : $0.limit)
+            }
+            return
+        }
+        do { try await api.clearUsageCounters(u); await loadDirectory() }
         catch { usersError = error.localizedDescription }
     }
 
@@ -369,10 +490,15 @@ final class DeviceViewModel: ObservableObject {
     /// with no way left to identify it.
     func deleteUser(_ u: DeviceUser) async {
         usersError = nil
+        if demo != nil {
+            users.removeAll { $0.userID == u.userID }
+            demoPermissions[u.userID] = nil
+            return
+        }
         let address = await loadPermissions(for: u)?.mailAddress?
             .trimmingCharacters(in: .whitespaces) ?? ""
         do {
-            try await client.deleteUser(id: u.userID, userType: u.userType)
+            try await api.deleteUser(id: u.userID, userType: u.userType)
             await loadDirectory()
             if users.contains(where: { $0.userID == u.userID }) {
                 usersError = "The device accepted the delete but user '\(u.userID)' is still listed."
@@ -385,8 +511,8 @@ final class DeviceViewModel: ObservableObject {
         // a failed deletion, so it is a notice rather than an error.
         guard !address.isEmpty else { return }
         do {
-            if try await client.deleteContact(withEmail: address) != nil {
-                contacts = (try? await client.addressBook()) ?? contacts
+            if try await api.deleteContact(withEmail: address) != nil {
+                contacts = (try? await api.addressBook()) ?? contacts
             }
         } catch {
             notice = "\(u.displayName) was deleted, but their address book entry (\(address)) could not be removed from \(printer.name)."
@@ -398,14 +524,16 @@ final class DeviceViewModel: ObservableObject {
     /// Reads one user's panel permissions and scan-to-email "From" address.
     func loadPermissions(for u: DeviceUser) async -> UserPermissions? {
         usersError = nil
-        do { return try await client.getUserPermissions(userID: u.userID) }
+        if demo != nil { return demoPermissions(u.userID) }
+        do { return try await api.getUserPermissions(userID: u.userID) }
         catch { usersError = error.localizedDescription; return nil }
     }
 
     /// The device's numbered permission groups. An empty list means the device does
     /// not offer them, which is not an error worth showing.
     func loadAuthorizationGroups() async -> [AuthorizationGroup] {
-        (try? await client.authorizationGroups()) ?? []
+        if demo != nil { return DemoFleet.authorizationGroups }
+        return (try? await api.authorizationGroups()) ?? []
     }
 
     /// Applies permissions, then re-reads to confirm the device stored them.
@@ -413,9 +541,10 @@ final class DeviceViewModel: ObservableObject {
     @discardableResult
     func savePermissions(for u: DeviceUser, _ wanted: UserPermissions) async -> UserPermissions? {
         usersError = nil
+        if demo != nil { demoPermissions[u.userID] = wanted; return wanted }
         do {
-            try await client.setUserPermissions(userID: u.userID, userType: u.userType, wanted)
-            let saved = try await client.getUserPermissions(userID: u.userID)
+            try await api.setUserPermissions(userID: u.userID, userType: u.userType, wanted)
+            let saved = try await api.getUserPermissions(userID: u.userID)
             for (service, permission) in wanted.access where saved.access[service] != permission {
                 usersError = "The device did not store the \(service.rawValue.lowercased()) permission (asked for \(permission.label), reads \(saved.access[service]?.label ?? "nothing"))."
                 return saved
@@ -435,9 +564,15 @@ final class DeviceViewModel: ObservableObject {
     @discardableResult
     func saveMailAddress(for u: DeviceUser, _ address: String) async -> UserPermissions? {
         usersError = nil
+        if demo != nil {
+            var p = demoPermissions(u.userID)
+            p.mailAddress = address
+            demoPermissions[u.userID] = p
+            return p
+        }
         do {
-            try await client.setUserMailAddress(userID: u.userID, userType: u.userType, address)
-            let saved = try await client.getUserPermissions(userID: u.userID)
+            try await api.setUserMailAddress(userID: u.userID, userType: u.userType, address)
+            let saved = try await api.getUserPermissions(userID: u.userID)
             if (saved.mailAddress ?? "") != address {
                 usersError = "The device accepted the address but reads back '\(saved.mailAddress ?? "")'."
             }
@@ -447,6 +582,8 @@ final class DeviceViewModel: ObservableObject {
 
     func loadAccounting() async {
         guard isSignedIn else { return }
+        if let demo { accountingJSON = DemoFleet.accountingJSON(demo); return }
+        guard let client else { return }
         let jobs: [(String, () async throws -> Data)] = [
             ("Internal Accounting",  client.internalAccountingRaw),
             ("All Users Management", client.allUsersManagementRaw),
@@ -465,12 +602,59 @@ final class DeviceViewModel: ObservableObject {
 
     func saveIdentity(_ edited: DeviceAbout) async {
         errorMessage = nil
+        if demo != nil { about = edited; return }
         do {
-            try await client.updateAbout(edited)
+            try await api.updateAbout(edited)
             about = edited
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Demo
+
+    /// Permissions as edited during a demo run. Held here rather than in the fixture so
+    /// each printer keeps its own copy, exactly as the devices do.
+    private var demoPermissions: [String: UserPermissions] = [:]
+
+    private func demoPermissions(_ userID: String) -> UserPermissions {
+        demoPermissions[userID] ?? DemoFleet.permissions(userID: userID)
+    }
+
+    /// A refresh against the fixture.
+    ///
+    /// The three outcomes are deliberate, and are the three this app exists to tell
+    /// apart: a device that cannot be reached, one that answers but serves nothing
+    /// without an administrator session, and one that answers fully -- including the
+    /// one whose status reads READY while a drum inside it is finished.
+    private func demoRefresh(_ demo: DemoFleet.DemoPrinter) async {
+        // Long enough that the progress indicator is on screen to be captured, short
+        // enough not to be in the way.
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        lastRefresh = Date()
+
+        guard demo.isReachable else {
+            about = nil; status = nil
+            supplies = []; counters = []; trays = []; faults = []; jobs = []; contacts = []
+            errorMessage = "Could not read: device info: Could not connect to \(printer.host)."
+            return
+        }
+        guard !demo.refusesAnonymousReads || isSignedIn else {
+            supplies = []; counters = []; trays = []; faults = []; jobs = []; contacts = []
+            about = nil; status = nil
+            errorMessage = "This device requires an administrator sign-in to read status. Choose Sign In."
+            return
+        }
+
+        about = DemoFleet.about(demo)
+        status = DemoFleet.status(demo)
+        supplies = DemoFleet.supplies(demo)
+        counters = DemoFleet.counters(demo)
+        trays = DemoFleet.trays(demo)
+        faults = DemoFleet.faults(demo)
+        jobs = DemoFleet.jobs(demo, max: jobLimit)
+        contacts = DemoFleet.contacts(demo)
+        errorMessage = nil
     }
 
     private static func prettyPrint(_ data: Data) -> String {

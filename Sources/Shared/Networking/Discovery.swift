@@ -130,6 +130,23 @@ final class PrinterDiscovery: NSObject, URLSessionDelegate, @unchecked Sendable 
     func scan(prefix: String,
               onProgress: @escaping @Sendable (Double) -> Void,
               onFound: @escaping @Sendable (DiscoveredPrinter) -> Void) async {
+        // A demo must not put 254 probes onto the network of whoever is running it, and
+        // the sweep is worth a screenshot in its own right -- so it answers from the
+        // fixture, at a pace that looks like a scan rather than finishing instantly.
+        if DemoMode.isEnabled {
+            for (index, demo) in DemoFleet.printers.enumerated() {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                onProgress(Double(index + 1) / Double(DemoFleet.printers.count))
+                guard demo.host.hasPrefix(prefix + ".") || prefix.isEmpty else { continue }
+                onFound(DiscoveredPrinter(host: demo.host, name: demo.name,
+                                          model: demo.model, serial: demo.serial,
+                                          status: demo.isReachable ? "READY" : "OFFLINE",
+                                          requiresAuth: demo.refusesAnonymousReads))
+            }
+            onProgress(1.0)
+            return
+        }
+
         let hosts = (1...254).map { "\(prefix).\($0)" }
         let batchSize = 48
         var completed = 0

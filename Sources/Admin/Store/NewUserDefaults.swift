@@ -35,19 +35,26 @@ struct NewUserDefaults: Codable, Equatable {
 enum NewUserDefaultsStore {
     private static let key = "newUserDefaults.v1"
 
+    /// A demo run starts from nothing and remembers nothing. These are the operator's
+    /// own settings for their own fleet: reading them would put real permission and
+    /// limit choices into a screenshot, and the Add User sheet saves them on use, so a
+    /// demo that wrote back would replace what the operator had set.
     static func load() -> NewUserDefaults {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard !DemoMode.isEnabled,
+              let data = UserDefaults.standard.data(forKey: key),
               let decoded = try? JSONDecoder().decode(NewUserDefaults.self, from: data)
         else { return NewUserDefaults() }
         return decoded
     }
 
     static func save(_ value: NewUserDefaults) {
+        guard !DemoMode.isEnabled else { return }
         guard let data = try? JSONEncoder().encode(value) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
 
     static func clear() {
+        guard !DemoMode.isEnabled else { return }
         UserDefaults.standard.removeObject(forKey: key)
     }
 

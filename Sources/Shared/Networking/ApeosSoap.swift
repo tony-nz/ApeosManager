@@ -40,6 +40,14 @@ typealias DeviceLog = SoapLog
 enum SoapLog {
     private static let queue = DispatchQueue(label: "nz.co.myers.ApeosManager.soaplog")
     private static let url: URL? = {
+        // A demo run must not append to the diagnostic log of whoever is running it, and
+        // must not carry its own traffic over from the last run either. Scratch file,
+        // emptied at launch.
+        if DemoMode.isEnabled {
+            let scratch = URL.temporaryDirectory.appending(path: "ApeosManagerDemo.log")
+            try? FileManager.default.removeItem(at: scratch)
+            return scratch
+        }
         guard let dir = try? FileManager.default.url(for: .libraryDirectory, in: .userDomainMask,
                                                      appropriateFor: nil, create: false)
             .appendingPathComponent("Logs/ApeosManager", isDirectory: true) else { return nil }

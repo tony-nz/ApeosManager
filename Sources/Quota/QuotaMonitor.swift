@@ -84,9 +84,11 @@ final class QuotaMonitor: ObservableObject {
     private nonisolated static func read(printer: QuotaPrinter,
                                          userID: String,
                                          passcode: String) async -> PrinterQuota {
+        if DemoMode.isEnabled { return await demoRead(printer: printer, userID: userID) }
+
         var result = PrinterQuota(printerID: printer.id, printerName: printer.name, host: printer.host)
-        let client = ApeosClient(host: printer.host)
         do {
+            let client = try ApeosClient(host: printer.host)
             try await client.login(userID: userID, password: passcode)
             defer { Task { await client.logout() } }
 
@@ -107,6 +109,39 @@ final class QuotaMonitor: ObservableObject {
         } catch {
             result.error = Self.describe(error)
         }
+        return result
+    }
+
+    /// One printer's answer, from the fixture.
+    ///
+    /// The same shape a real read produces, failures included: the fleet the demo shows
+    /// has a device that cannot be reached and a device this user has no account on,
+    /// because "your total is assembled from three of five printers, and here is which
+    /// two are missing" is one of the states most worth documenting.
+    private nonisolated static func demoRead(printer: QuotaPrinter,
+                                             userID: String) async -> PrinterQuota {
+        var result = PrinterQuota(printerID: printer.id, printerName: printer.name,
+                                  host: printer.host)
+        // A real refresh takes a moment, and the spinner is part of the picture.
+        try? await Task.sleep(nanoseconds: 450_000_000)
+
+        guard let demo = DemoFleet.printer(host: printer.host) else {
+            result.error = "Unavailable"
+            return result
+        }
+        guard demo.isReachable else {
+            result.error = "Unreachable"
+            return result
+        }
+        guard demo.holds.contains(userID) else {
+            result.noAccount = true
+            return result
+        }
+        result.meters = DemoFleet.meters(userID: userID, on: demo)
+        result.userName = DemoFleet.users.first { $0.userID == userID }?.userName ?? ""
+        result.jobs = Array(DemoFleet.jobs(demo)
+            .filter { $0.userID == userID }
+            .prefix(jobsKept))
         return result
     }
 

@@ -7,6 +7,7 @@ enum ApeosError: LocalizedError {
     case notAuthenticated
     case decoding(String)
     case soapFault(String, String)
+    case demoMode
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,7 @@ enum ApeosError: LocalizedError {
         case .notAuthenticated:      return "This action requires signing in as the printer administrator."
         case .decoding(let d):       return "Unexpected response format: \(d)"
         case .soapFault(let c, let m): return "Device refused the request (\(c)): \(m)"
+        case .demoMode:              return "This is a demonstration fleet; nothing is contacted."
         }
     }
 }
@@ -38,7 +40,19 @@ final class ApeosClient: NSObject {
 
     var urlSession: URLSession { session }
 
-    init(host: String) {
+    /// Throws in a demo run rather than handing back a client.
+    ///
+    /// This is the one guard the demo cannot do without. A demo has no credentials of
+    /// its own, but the Mac running it very likely holds real ones -- and both apps
+    /// look their keychain items up under a fixed account name rather than anything the
+    /// fixture chooses, so a client that merely pointed at a fictional address would
+    /// still sign in as the real administrator, or as the real user, the moment
+    /// anything reached a button the fixture had not thought to disable.
+    ///
+    /// Being `throws` rather than failable is deliberate: it makes the compiler walk
+    /// every construction site, which is an audit that cannot be forgotten.
+    init(host: String) throws {
+        guard !DemoMode.isEnabled else { throw ApeosError.demoMode }
         self.host = host
         super.init()
         let cfg = URLSessionConfiguration.ephemeral
