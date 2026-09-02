@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apeos Manager — fleet management for Apeos printers on macOS</title>
+<meta name="description" content="A macOS app for managing a fleet of FUJIFILM Apeos and ApeosPort multifunction printers: supplies, users, accounting limits, address books and logs, across every printer at once.">
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <img src="assets/icon.png" alt="Apeos Manager icon">
+    <span class="name">Apeos Manager</span>
+    <nav>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#demo">Demo</a>
+      <a href="documentation.html">Documentation</a>
+      <a href="https://github.com/tony-nz/ApeosManager">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="wrap hero">
+  <img class="appicon" src="assets/icon.png" alt="Apeos Manager application icon">
+  <h1>Your whole printer fleet, in one window.</h1>
+  <p class="lead">
+    Supplies, trays, user accounts, accounting limits, address books and logs for
+    FUJIFILM Apeos and ApeosPort multifunction printers &mdash; across every device at
+    once, from a native macOS app.
+  </p>
+  <div class="badges">
+    <span class="badge">macOS 14 or later</span>
+    <span class="badge">Universal &mdash; Apple silicon and Intel</span>
+    <span class="badge">Signed and notarised</span>
+    <span class="badge">No vendor SDK</span>
+    <span class="badge">MIT licence</span>
+  </div>
+  <div class="cta">
+    <a class="button primary" href="https://github.com/tony-nz/ApeosManager/releases/latest">Download</a>
+    <a class="button quiet" href="documentation.html">Read the manual</a>
+    <a class="button quiet" href="https://github.com/tony-nz/ApeosManager">Source on GitHub</a>
+  </div>
+</section>
+
+<section class="wrap">
+  <figure>
+    <img src="screenshots/fleet-overview.png"
+         alt="The fleet overview. A Needs Attention panel lists a spent cyan drum and a
+              fuser at four per cent on Design Studio, and three low consumables on
+              Accounts Copy Room. Below it, printer cards show Design Studio badged
+              Ready, Goods In unreachable, and Branch Desk 3 asking for an administrator
+              sign-in.">
+    <figcaption>
+      The reason for the app, in one screen. <strong>Design Studio reports
+      &ldquo;Ready&rdquo;</strong> &mdash; its own panel and its status endpoint both say
+      so &mdash; while the drum inside it is finished and its fuser has four per cent
+      left. A device that reports its own trouble needs no fleet manager to find it. The
+      one that does not is the reason this exists.
+    </figcaption>
+  </figure>
+</section>
+
+<section class="wrap">
+  <h2 id="what">What it does</h2>
+  <div class="features">
+    <div class="feature">
+      <h3>Fleet overview</h3>
+      <p>Status, toner and drum levels and lifetime counters from every printer, with a
+         single &ldquo;needs attention&rdquo; list gathered across all of them.</p>
+    </div>
+    <div class="feature">
+      <h3>Users across the fleet</h3>
+      <p>The union of accounts on every device, showing which printers hold each one.
+         Create a user on many printers at once; edit membership per printer.</p>
+    </div>
+    <div class="feature">
+      <h3>Accounting limits</h3>
+      <p>Per-user copy, print and scan meters in colour and mono, with editable caps and
+         counter resets &mdash; and a re-read after every write, because these devices
+         accept changes they do not apply.</p>
+    </div>
+    <div class="feature">
+      <h3>Permissions</h3>
+      <p>Feature access per user for copy, fax, scan and print, which login methods the
+         panel accepts, the device role, the permission group, and the address a user's
+         scans are sent from.</p>
+    </div>
+    <div class="feature">
+      <h3>Address books</h3>
+      <p>Per printer and merged fleet-wide, with favourites, and every write confirmed by
+         reading it back.</p>
+    </div>
+    <div class="feature">
+      <h3>Job and fault logs</h3>
+      <p>Who printed what, in what colour and on what size, per printer and across the
+         fleet &mdash; plus the device fault log, with repeated codes counted.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2 id="two-apps">Two apps, one core</h2>
+  <div class="prose">
+    <p>
+      The project builds two applications from one shared set of models and one shared
+      transport. The administrator's app manages the fleet. The user's app shows one
+      person their own allowance and never holds an administrator credential.
+    </p>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>App</th><th>For</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Apeos Manager</strong></td>
+          <td>administrators</td>
+          <td>The whole fleet &mdash; everything above.</td>
+        </tr>
+        <tr>
+          <td><strong>Apeos Quota</strong></td>
+          <td>everyone else</td>
+          <td>Your own printing allowance, in your menu bar.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="shots two">
+    <figure>
+      <img src="screenshots/quota-menu-bar.png"
+           alt="The Apeos Quota menu bar popover for Reception Desk, showing four capped
+                meters close to their limits, two uncapped scan meters, and a warning
+                that one printer could not be read so totals may be low.">
+      <figcaption>
+        Apeos Quota in the menu bar: what is left, on the meter closest to running out.
+        Totals add up across the fleet, and say so when a printer could not be reached
+        rather than passing a short count off as fact.
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/quota-balance.png"
+           alt="The Balance window: 423 Copy Black and White remaining, marked partial,
+                with all five printers listed — Reception 69 left, Accounts Copy Room 20
+                left, Goods In unreachable, Design Studio 204 left, and Branch Desk 3
+                showing no account.">
+      <figcaption>
+        The pop-out, for a corner of the screen. A user has no account on every printer
+        and a printer is not always up; both are stated rather than quietly dropped.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2 id="screenshots">Screenshots</h2>
+  <div class="shots two">
+    <figure>
+      <img src="screenshots/fleet-users.png"
+           alt="The fleet-wide Users list: nineteen accounts with ID, name, type, role,
+                a count of how many printers hold each, and a tick per printer.">
+      <figcaption>Every account across the fleet, and which printers hold it.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/printer-accounts.png"
+           alt="One printer's Accounts tab, showing its user list with per-user usage
+                totals and department numbers.">
+      <figcaption>One printer's own directory, with usage and department per user.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/printer-faults.png"
+           alt="The fault log for Design Studio: fault code 010-320 listed eleven times
+                over a fortnight, each row marked eleven times on this printer, on a
+                device whose header reads Ready.">
+      <figcaption>
+        Fault code 010&#8209;320, eleven times in a fortnight, on the printer whose
+        status still reads Ready. Repeats are counted, because one is noise and eleven
+        is a service call.
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/printer-jobs.png"
+           alt="Job history for one printer: date, user, type, colour, paper size,
+                sheets, impressions, copies and state.">
+      <figcaption>Job history per printer, and the same merged across the fleet.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/printer-overview.png"
+           alt="Design Studio's own overview: header reads Ready, toner all near seventy
+                per cent, and below it Drum Cyan at zero per cent marked Exchange Time
+                and the fuser at four per cent.">
+      <figcaption>
+        The same device up close. Toner is fine; that is what the panel reports on.
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/add-printer.png"
+           alt="The Add Printer sheet mid-scan, listing discovered printers with their
+                addresses, serial numbers and status.">
+      <figcaption>A subnet sweep, so printers need not be typed in by address.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2 id="demo">Try it without a printer</h2>
+  <div class="prose">
+    <p>
+      Both apps ship with a demonstration fleet built in. Launch either one with
+      <code>-demoMode YES</code> and it runs against a fictional site of five printers
+      &mdash; one healthy, one low on toner, one unreachable, one that refuses reads
+      without an administrator password, and one that says it is fine while a drum inside
+      it is finished.
+    </p>
+<pre><code>/Applications/Apeos\ Manager.app/Contents/MacOS/ApeosManager -demoMode YES
+/Applications/Apeos\ Quota.app/Contents/MacOS/ApeosQuota     -demoMode YES</code></pre>
+    <p>
+      Every screenshot on this page was taken from it. A demo run contacts nothing on
+      your network, reads no credential from your keychain, and writes nothing to your
+      settings &mdash; the network client refuses to be constructed at all, so there is
+      no path by which it could.
+    </p>
+    <p class="dim">
+      It is also the fastest way to see whether the app is worth installing, and to work
+      out what a screen is telling you before you point it at hardware.
+    </p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2 id="start">Getting started</h2>
+  <div class="prose">
+    <ol>
+      <li>Download the latest release, unzip it, and drag both apps to Applications.</li>
+      <li>Open <strong>Apeos Manager</strong> and press <strong>+</strong>. Either type a
+          printer's address or sweep the subnet to find one.</li>
+      <li>Give it the device's administrator ID and password. The password goes to your
+          login keychain, never to a preferences file.</li>
+      <li>Repeat for the rest of the fleet. The fleet-wide screens fill in as printers
+          connect.</li>
+    </ol>
+    <div class="note">
+      <strong>Apeos Quota is for everyone else.</strong> It signs in as one ordinary
+      user with their own ID and passcode, and never holds an administrator credential.
+      Hand it out on its own; it does not need the manager app installed.
+    </div>
+    <p>
+      The <a href="documentation.html">manual</a> covers each screen, what the device
+      does and does not allow, and the parts of its behaviour worth knowing before you
+      change anything.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Apeos Manager and Apeos Quota &mdash; &copy; 2026 Tony Myers. MIT licence.</p>
+    <p>Not affiliated with or endorsed by FUJIFILM Business Innovation. The device API
+       used here is not published by the vendor; it was derived by observation and
+       verified against hardware.</p>
+    <p><a href="https://github.com/tony-nz/ApeosManager">github.com/tony-nz/ApeosManager</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

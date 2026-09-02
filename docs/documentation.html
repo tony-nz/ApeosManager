@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation — Apeos Manager</title>
+<meta name="description" content="The manual for Apeos Manager and Apeos Quota: every screen, what the devices allow, and the behaviour worth knowing before changing anything.">
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <img src="assets/icon.png" alt="Apeos Manager icon">
+    <span class="name">Apeos Manager</span>
+    <nav>
+      <a href="index.html">Overview</a>
+      <a href="documentation.html">Documentation</a>
+      <a href="https://github.com/tony-nz/ApeosManager">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:2.5rem">
+<div class="doc">
+
+  <aside class="doc-nav">
+    <ul>
+      <li class="group">Getting started</li>
+      <li><a href="#install">Installing</a></li>
+      <li><a href="#adding">Adding printers</a></li>
+      <li><a href="#passwords">Passwords and the keychain</a></li>
+      <li><a href="#demo">Demonstration mode</a></li>
+
+      <li class="group">Apeos Manager</li>
+      <li><a href="#fleet-overview">Fleet overview</a></li>
+      <li><a href="#printer">One printer</a></li>
+      <li><a href="#users">Users</a></li>
+      <li><a href="#usage">Accounting limits</a></li>
+      <li><a href="#permissions">Permissions</a></li>
+      <li><a href="#address-book">Address book</a></li>
+      <li><a href="#logs">Logs</a></li>
+
+      <li class="group">Apeos Quota</li>
+      <li><a href="#quota">The user app</a></li>
+      <li><a href="#quota-totals">How totals are worked out</a></li>
+
+      <li class="group">Reference</li>
+      <li><a href="#behaviour">Device behaviour</a></li>
+      <li><a href="#privacy">What leaves your network</a></li>
+      <li><a href="#building">Building from source</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ul>
+  </aside>
+
+  <div class="doc-body prose">
+    <h1>Documentation</h1>
+    <p class="dim">
+      Apeos Manager and Apeos Quota, for FUJIFILM Apeos and ApeosPort multifunction
+      printers. Built and verified against Apeos C6570, C3570 and C3530 hardware.
+    </p>
+
+    <section id="install">
+      <h2>Installing</h2>
+      <p>
+        macOS 14 or later. The release is a single zip containing both applications,
+        signed with a Developer ID certificate and notarised by Apple, so it opens
+        without a warning and without a right-click bypass.
+      </p>
+      <ol>
+        <li>Download the zip from the releases page and unzip it.</li>
+        <li>Drag <strong>Apeos Manager</strong> and <strong>Apeos Quota</strong> to your
+            Applications folder.</li>
+        <li>Open either one.</li>
+      </ol>
+      <p>
+        The two are independent. An administrator wants the first; everybody else wants
+        only the second, and it works on its own.
+      </p>
+    </section>
+
+    <section id="adding">
+      <h2>Adding printers</h2>
+      <figure>
+        <img src="screenshots/add-printer.png"
+             alt="The Add Printer sheet: a Scan field pre-filled with a subnet prefix, a
+                  Scan Network button, a list of discovered printers with addresses,
+                  serial numbers and status, and fields for name, host, admin user ID
+                  and admin password.">
+        <figcaption>Press <strong>+</strong> in the toolbar.</figcaption>
+      </figure>
+      <p>
+        Either type the printer's address, or sweep a subnet with <strong>Scan
+        Network</strong>. The sweep probes <code>prefix.1</code> through
+        <code>prefix.254</code> for a device that answers
+        <code>/home/api/device-status</code>, which is the one endpoint every model
+        tested serves without authentication.
+      </p>
+      <p>
+        The suggested prefix comes from a printer you have already added, in preference
+        to your Mac's own interface. Printers are frequently on a different subnet from
+        the machine managing them, and offering only the local interface would sweep 254
+        addresses and find nothing.
+      </p>
+      <p>
+        <strong>Test Connection</strong> reads the device's identity before you commit to
+        it. Some models will not answer that without an administrator session, in which
+        case the sheet says so and asks for a password rather than reporting the printer
+        as unreachable.
+      </p>
+    </section>
+
+    <section id="passwords">
+      <h2>Passwords and the keychain</h2>
+      <p>
+        Administrator passwords go to your login keychain, never to a preferences file.
+        Each is stored under the printer's own identifier, so renaming a printer does not
+        lose its password.
+      </p>
+      <div class="note">
+        <strong>If the app says a saved password cannot be read,</strong> its code
+        signature has changed. Keychain access is bound to code identity, so a build
+        signed with a different certificate is treated by macOS as a different
+        application. Sign in once and the password is stored again. This is also why
+        building from source without a signing identity is not recommended for daily use.
+      </div>
+    </section>
+
+    <section id="demo">
+      <h2>Demonstration mode</h2>
+      <p>
+        Both apps contain a fictional fleet. Launch either with
+        <code>-demoMode YES</code>:
+      </p>
+<pre><code>/Applications/Apeos\ Manager.app/Contents/MacOS/ApeosManager -demoMode YES
+/Applications/Apeos\ Quota.app/Contents/MacOS/ApeosQuota     -demoMode YES</code></pre>
+      <p>
+        Five printers, nineteen accounts, and one of every state the apps distinguish: a
+        healthy device, one low on toner, one that cannot be reached, one that refuses
+        reads without an administrator session, and one that reports itself Ready while a
+        drum inside it is spent. It is the quickest way to learn what a screen is telling
+        you before pointing the app at your own hardware.
+      </p>
+      <p>
+        A demo run touches nothing of yours. It contacts no address on your network,
+        reads no credential from your keychain, and writes nothing to your settings. The
+        network client refuses to be constructed under the flag at all, so there is no
+        path by which a demo could reach a device even if one were configured.
+      </p>
+    </section>
+
+    <section id="fleet-overview">
+      <h2>Fleet overview</h2>
+      <figure>
+        <img src="screenshots/fleet-overview.png"
+             alt="Fleet overview with a Needs Attention list above cards for each
+                  printer, showing ready, warning, unreachable and sign-in-required
+                  states side by side.">
+        <figcaption>Every printer, and what each is currently reporting.</figcaption>
+      </figure>
+      <p>
+        <strong>Needs Attention</strong> gathers consumables at or near their end across
+        every printer, worst first. A red marker means the part is finished; amber means
+        it is close.
+      </p>
+      <p>
+        Each card carries the device's own status badge. That badge is the printer's
+        opinion of itself, and it is not always right &mdash; in the screenshot above,
+        Design Studio reports <em>Ready</em> while its cyan drum is spent. Read the
+        attention list, not the badge.
+      </p>
+      <p>Printers that cannot be read say why:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>What it says</th><th>What it means</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Could not connect</td>
+              <td>Nothing answered at that address. The printer is off, asleep, or on a
+                  network this Mac cannot reach.</td>
+            </tr>
+            <tr>
+              <td>Requires an administrator sign-in</td>
+              <td>The device answered, but serves nothing except its status without a
+                  session. Add its password, or use <strong>Sign In</strong>.</td>
+            </tr>
+            <tr>
+              <td>Could not read: <em>&hellip;</em></td>
+              <td>Some endpoints answered and others did not. Which ones is listed;
+                  coverage varies by model and firmware.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="printer">
+      <h2>One printer</h2>
+      <figure>
+        <img src="screenshots/printer-overview.png"
+             alt="A single printer's Overview tab: header reading Ready, four toner
+                  gauges near seventy per cent, a consumables list with Drum Cyan at zero
+                  per cent marked Exchange Time and the fuser at four per cent, and usage
+                  counters below.">
+        <figcaption>Toner, drums, other consumables, and the lifetime counters.</figcaption>
+      </figure>
+      <p>
+        Selecting a printer in the sidebar gives its own tabs: <strong>Overview</strong>,
+        <strong>Trays</strong>, <strong>Settings</strong>, <strong>Accounts</strong>,
+        <strong>Address Book</strong> and <strong>Logs</strong>.
+      </p>
+      <figure>
+        <img src="screenshots/printer-trays.png"
+             alt="A printer's Trays tab listing five trays with their paper size, media
+                  type, colour and level, one of them empty.">
+        <figcaption>Trays, including the empty one nothing at the top of the screen mentions.</figcaption>
+      </figure>
+      <p>
+        <strong>Trays</strong> lists each tray's size, media type, colour and level.
+        <strong>Settings</strong> shows the device's own identity fields &mdash; friendly
+        name, location, and administrator contact details &mdash; and can write them
+        back.
+      </p>
+    </section>
+
+    <section id="users">
+      <h2>Users</h2>
+      <figure>
+        <img src="screenshots/fleet-users.png"
+             alt="The fleet-wide Users list: accounts with ID, name, type and role, a
+                  count of how many printers hold each account, and a tick per printer
+                  column.">
+        <figcaption>The union of every directory in the fleet.</figcaption>
+      </figure>
+      <p>
+        The fleet Users screen merges the directories of every readable printer. The
+        <strong>On</strong> column counts how many hold each account, and the columns to
+        its right say which. <strong>Missing from some printers</strong> filters to
+        accounts that are not everywhere &mdash; usually the thing you actually came to
+        find.
+      </p>
+      <p>
+        Printers that could not be read are excluded and named at the foot of the screen,
+        so a missing tick is never confused with a printer that simply did not answer.
+      </p>
+      <p>
+        <strong>Add User</strong> creates an account on as many printers as you choose at
+        once. Every write is read back afterwards and any mismatch is reported: these
+        devices accept some requests without applying them, and answer HTTP 200 either
+        way.
+      </p>
+    </section>
+
+    <section id="usage">
+      <h2>Accounting limits</h2>
+      <figure>
+        <img src="screenshots/printer-accounts.png"
+             alt="One printer's Accounts tab showing its users with per-user usage totals
+                  and department numbers, and Departments and Users segments above.">
+        <figcaption>A printer's own accounting directory.</figcaption>
+      </figure>
+      <p>
+        Each user carries six meters &mdash; copy, print and scan, each in colour and
+        black and white. A meter has a cap and a used count, and the device reports
+        <code>9999999</code> where no cap is set. The apps read that as
+        <em>unlimited</em> rather than as a very large allowance.
+      </p>
+      <p>
+        Limits are editable per user, and counters can be reset. After each write the
+        record is read back and any value the device did not store is reported against
+        the field that failed.
+      </p>
+    </section>
+
+    <section id="permissions">
+      <h2>Permissions</h2>
+      <p>Per user, per printer:</p>
+      <ul>
+        <li><strong>Feature access</strong> for copy, fax, scan and print. The available
+            settings differ by service &mdash; fax offers only full access or none, and
+            print offers a combination copy does not.</li>
+        <li><strong>Login methods</strong> the panel will accept for this user: user ID,
+            card, both, or neither. A device without a card reader does not offer the
+            card option at all.</li>
+        <li><strong>Role</strong> &mdash; system administrator, account administrator or
+            local user.</li>
+        <li><strong>Permission group</strong>, by the device's own numbered groups.</li>
+        <li><strong>Email &ldquo;From&rdquo; address</strong> used when this user scans to
+            email.</li>
+      </ul>
+      <p>
+        Only fields the device actually reported are ever written back. Models differ over
+        which exist, and writing one a device does not have is rejected outright.
+      </p>
+    </section>
+
+    <section id="address-book">
+      <h2>Address book</h2>
+      <p>
+        Available per printer and merged across the fleet, with favourites. Entries can be
+        added, renamed, re-addressed and deleted.
+      </p>
+      <figure>
+        <img src="screenshots/fleet-address-book.png"
+             alt="The fleet-wide address book, listing contacts with their email
+                  addresses and which printers hold each entry.">
+        <figcaption>The merged fleet-wide book, with the printers holding each entry.</figcaption>
+      </figure>
+      <p>
+        Every write is confirmed by reading it back, because the address book endpoint
+        answers 200 to creations it then discards. Deleting a user also offers to remove
+        the address book entry carrying their email address; that address is read
+        <em>before</em> the deletion, since afterwards the device has no way to tell you
+        what it was.
+      </p>
+    </section>
+
+    <section id="logs">
+      <h2>Logs</h2>
+      <figure>
+        <img src="screenshots/printer-faults.png"
+             alt="A printer's fault log: fault code 010-320 listed eleven times over a
+                  fortnight, each row marked eleven times on this printer, alongside two
+                  one-off codes.">
+        <figcaption>Repeated codes are counted, per printer and across the fleet.</figcaption>
+      </figure>
+      <p>
+        <strong>Jobs</strong> is the device's job history: who printed what, in colour or
+        mono, on what size, and how many sheets and impressions it cost. It is searchable
+        by user or type, and available per printer or merged fleet-wide.
+      </p>
+      <p>
+        <strong>Faults</strong> is the device's fault log. Codes are Fujifilm service
+        codes and the device does not publish descriptions for them, so they are shown as
+        given &mdash; but repeats are counted. A code seen once is noise; the same code
+        eleven times in a fortnight is a service call, and that is the pattern a
+        fleet-wide log exists to surface.
+      </p>
+      <figure>
+        <img src="screenshots/fleet-logs.png"
+             alt="The fleet-wide log view, merging job history from every printer with a
+                  column naming which printer each job ran on.">
+        <figcaption>The same logs merged across the fleet, with the printer named per row.</figcaption>
+      </figure>
+      <p>
+        Job history is paged: the device refuses any request for more than twenty at a
+        time. <strong>Load 100 More</strong> walks further back.
+      </p>
+    </section>
+
+    <section id="quota">
+      <h2>Apeos Quota &mdash; the user app</h2>
+      <figure>
+        <img src="screenshots/quota-menu-bar.png"
+             alt="The Apeos Quota popover showing Reception Desk's six meters, four
+                  capped and close to their limits, two uncapped, and a warning that one
+                  printer could not be read.">
+        <figcaption>The menu bar shows what is left on the meter closest to running out.</figcaption>
+      </figure>
+      <p>
+        A menu bar app for one person. It signs in as that person, with their own user ID
+        and passcode, and never holds an administrator credential &mdash; the device
+        allows an ordinary user to read their own accounting meters, which is what makes a
+        standalone app possible rather than a relay service.
+      </p>
+      <p>
+        The menu bar label shows pages remaining on the tightest capped meter, or pages
+        used where nothing is capped. With neither &mdash; signed out, or nothing read yet
+        &mdash; it shows only its icon, rather than a zero that would read as an exhausted
+        allowance.
+      </p>
+      <figure>
+        <img src="screenshots/quota-balance.png"
+             alt="The Balance window: a large 423 for Copy Black and White remaining
+                  marked partial, above a list of five printers showing amounts left,
+                  one unreachable and one with no account.">
+        <figcaption>
+          The pop-out, meant for a corner of the screen, with each printer's own standing.
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/quota-detail.png"
+             alt="The Apeos Quota detail window: Your allowance with six meters, then a
+                  By printer section giving each device's own used-of-limit figures.">
+        <figcaption>
+          The detail window: the fleet total, then where each printer stands on its own.
+        </figcaption>
+      </figure>
+      <p>
+        Refreshes are unhurried by design &mdash; fifteen minutes by default. Each one
+        signs in, reads, and signs out again: these devices allow only a handful of
+        concurrent sessions and this app is meant to run on every desk at once, so nothing
+        is held open between refreshes.
+      </p>
+    </section>
+
+    <section id="quota-totals">
+      <h2>How totals are worked out</h2>
+      <p>Two rules, both chosen so the figure shown is never rosier than reality.</p>
+      <ul>
+        <li>
+          <strong>Used adds up.</strong> Counters are per device, so fleet usage is their
+          sum.
+        </li>
+        <li>
+          <strong>One uncapped printer uncaps the type.</strong> If any printer lets you
+          print colour without a cap then you are not capped for colour fleet-wide,
+          whatever the others say. Summing the device's <code>9999999</code> sentinel into
+          a total would instead invent an enormous but finite allowance and draw a
+          progress bar against it.
+        </li>
+      </ul>
+      <p>
+        A printer that could not be read contributes nothing, and the total is marked
+        <em>partial</em> rather than presented as fact. A printer you have no account on
+        says so, which is a different thing from a printer that failed.
+      </p>
+    </section>
+
+    <section id="behaviour">
+      <h2>Device behaviour worth knowing</h2>
+      <p>
+        None of this API is published by the vendor. It was derived by reading the web
+        interface each device serves and verifying every call against hardware. The
+        behaviour below is the part that affects what you see in the apps.
+      </p>
+      <ul>
+        <li>
+          <strong>Endpoint exposure varies by model.</strong> Some devices serve their
+          status and identity to anyone on the network; others return 403 for everything
+          except status. This is why the apps sign in before reading.
+        </li>
+        <li>
+          <strong>Writes can succeed without applying.</strong> Several operations return
+          success and store nothing. Every write in these apps is followed by a read, and
+          mismatches are reported rather than assumed away.
+        </li>
+        <li>
+          <strong>A display name persists only in one place.</strong> Writing it to the
+          accounting record returns success and discards the value.
+        </li>
+        <li>
+          <strong>Job history is device-wide and pages twenty at a time.</strong> The user
+          app therefore scans a bounded window of recent jobs and narrows it to the
+          signed-in user in the client &mdash; the device offers no filter that it will
+          accept.
+        </li>
+        <li>
+          <strong>Accounting configuration stays administrator-only.</strong> The
+          capability endpoints return 403 to an ordinary user session, which is the
+          boundary the user app relies on.
+        </li>
+      </ul>
+      <p>
+        The <a href="https://github.com/tony-nz/ApeosManager#findings-worth-knowing">project
+        README</a> carries the full list, including the request shapes each operation
+        accepts and the ones it silently ignores.
+      </p>
+    </section>
+
+    <section id="privacy">
+      <h2>What leaves your network</h2>
+      <p>
+        Nothing. Both apps talk only to the printers you configure, over your own network.
+        There is no account, no telemetry, no update check and no external service of any
+        kind.
+      </p>
+      <p>
+        Credentials go to your login keychain. The two apps store theirs separately, under
+        their own bundle identifiers, so the user app cannot read administrator passwords
+        the manager saves.
+      </p>
+      <p>
+        The user app reads the whole directory from each printer because the device will
+        not filter to one user, but narrows it at the boundary: nothing except the
+        signed-in user's own records is stored, published or displayed.
+      </p>
+    </section>
+
+    <section id="building">
+      <h2>Building from source</h2>
+      <p>Requires Xcode and <a href="https://github.com/yonaskolb/XcodeGen">XcodeGen</a>.</p>
+<pre><code>export APEOS_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
+./build.sh                # both apps
+./build.sh ApeosQuota     # just the user app</code></pre>
+      <p>
+        <code>security find-identity -v -p codesigning</code> lists your identities.
+        Signing is not optional in practice: keychain access is bound to code identity, so
+        an unsigned build cannot read printer passwords saved by a previous one.
+      </p>
+      <p>To cut a signed, notarised release:</p>
+<pre><code>./Scripts/release.sh 1.0.0 --skip-notarize   # build and sign only
+./Scripts/release.sh 1.0.0                   # build, sign, notarise, staple
+./Scripts/release.sh 1.0.0 --publish         # ...then tag and publish</code></pre>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <h3>A printer shows &ldquo;requires an administrator sign-in&rdquo;</h3>
+      <p>
+        The device answered but will not serve reads anonymously. Select it, choose
+        <strong>Sign In</strong>, and give it the administrator password. Saving the
+        password when you add the printer avoids this on later launches.
+      </p>
+
+      <h3>A saved password cannot be read</h3>
+      <p>
+        The application's code signature changed, and keychain access is bound to code
+        identity. Sign in once more and it is stored again.
+      </p>
+
+      <h3>The subnet sweep finds nothing</h3>
+      <p>
+        Check the prefix. Printers are often on a different subnet from the Mac managing
+        them, and the sweep only probes the one you give it. The sweep looks for a device
+        that answers <code>/home/api/device-status</code>; a printer that answers nothing
+        anonymously will not be found this way and must be added by address.
+      </p>
+
+      <h3>A change was accepted but did not take</h3>
+      <p>
+        That is the device, not the app, and the app says so deliberately. Some values are
+        rejected by length or format, some fields exist only on some models, and some
+        operations return success and store nothing. The message names the field and what
+        the device reads back.
+      </p>
+
+      <h3>Apeos Quota says totals may be low</h3>
+      <p>
+        At least one printer could not be read, so the total is a lower bound. The
+        <strong>Balance</strong> window lists each printer separately and says which one
+        failed.
+      </p>
+    </section>
+  </div>
+
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Apeos Manager and Apeos Quota &mdash; &copy; 2026 Tony Myers. MIT licence.</p>
+    <p>Not affiliated with or endorsed by FUJIFILM Business Innovation.</p>
+    <p><a href="index.html">Overview</a> &middot;
+       <a href="https://github.com/tony-nz/ApeosManager">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+// Scrollspy. A *set* of visible sections is tracked and the topmost wins, so scrolling
+// up highlights the same section that scrolling down did -- taking whichever entry
+// happened to fire last does not.
+(function () {
+    var sections = Array.prototype.slice.call(document.querySelectorAll('.doc-body section'));
+    var links = Array.prototype.slice.call(document.querySelectorAll('.doc-nav a'));
+    if (!sections.length || !('IntersectionObserver' in window)) { return; }
+    var visible = {};
+
+    var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (entry.isIntersecting) { visible[entry.target.id] = true; }
+            else { delete visible[entry.target.id]; }
+        });
+        var current = null;
+        for (var i = 0; i < sections.length; i++) {
+            if (visible[sections[i].id]) { current = sections[i]; break; }
+        }
+        links.forEach(function (a) {
+            a.classList.toggle('active',
+                !!current && a.getAttribute('href') === '#' + current.id);
+        });
+    }, { rootMargin: '-72px 0px -70% 0px' });
+
+    sections.forEach(function (s) { observer.observe(s); });
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,183 @@
+/* Apeos Manager — one stylesheet, no build step, no web fonts.
+   The light palette is defined on :root and only the properties are redefined in the
+   dark block, so no colour has its only definition inside a media query. */
+
+:root {
+    --bg: #ffffff;
+    --bg-soft: #f6f7f9;
+    --bg-sunken: #eceef1;
+    --text: #16191d;
+    --text-dim: #5b636d;
+    --line: #dfe3e8;
+    --accent: #1f6feb;
+    --accent-dim: #d6e4fd;
+    --warn: #b26a00;
+    --warn-bg: #fdf3e2;
+    --code-bg: #f2f4f7;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .07);
+    --radius: 10px;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #14171a;
+        --bg-soft: #1b1f24;
+        --bg-sunken: #22272e;
+        --text: #e8eaed;
+        --text-dim: #9aa4b1;
+        --line: #2c333b;
+        --accent: #6ea8ff;
+        --accent-dim: #1d3559;
+        --warn: #e2a44a;
+        --warn-bg: #2e2413;
+        --code-bg: #1b1f24;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .45);
+    }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 var(--sans);
+}
+
+/* Prose is capped; figures and tables are allowed the full column. */
+.wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem; }
+.prose { max-width: 40rem; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { line-height: 1.25; letter-spacing: -.01em; }
+h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.45rem; margin: 3rem 0 .75rem; }
+h3 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+p, li { color: var(--text); }
+.dim { color: var(--text-dim); }
+
+code, kbd {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: .1em .35em;
+}
+
+pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;          /* wide code scrolls itself, never the page */
+}
+pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+
+/* ---- header ---- */
+
+.site-head {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--line);
+}
+.site-head .wrap { display: flex; align-items: center; gap: .75rem; height: 56px; }
+.site-head img { width: 26px; height: 26px; border-radius: 6px; }
+.site-head .name { font-weight: 600; color: var(--text); }
+.site-head nav { margin-left: auto; display: flex; gap: 1.25rem; font-size: .93rem; }
+
+/* ---- hero ---- */
+
+.hero { padding: 3.5rem 0 1rem; }
+.hero img.appicon { width: 84px; height: 84px; margin-bottom: 1rem; }
+.hero p.lead { font-size: 1.15rem; color: var(--text-dim); max-width: 34rem; }
+
+.badges { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0 0; }
+.badge {
+    font-size: .8rem; color: var(--text-dim);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: .2rem .7rem; background: var(--bg-soft);
+}
+
+.cta { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.75rem 0 0; }
+.button {
+    display: inline-block; padding: .55rem 1.1rem; border-radius: 8px;
+    font-size: .95rem; font-weight: 500; border: 1px solid transparent;
+}
+.button.primary { background: var(--accent); color: #fff; }
+.button.primary:hover { text-decoration: none; filter: brightness(1.08); }
+.button.quiet { border-color: var(--line); color: var(--text); background: var(--bg-soft); }
+.button.quiet:hover { text-decoration: none; border-color: var(--text-dim); }
+
+.note {
+    border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    background: var(--warn-bg); color: var(--text);
+    border-radius: 8px; padding: .8rem 1rem; margin: 1.5rem 0; font-size: .93rem;
+}
+
+/* ---- figures ---- */
+
+figure { margin: 1.5rem 0 2.5rem; }
+figure img {
+    display: block; width: 100%; height: auto;
+    border-radius: var(--radius);
+}
+figure.plain img { box-shadow: none; }
+figcaption { margin-top: .7rem; color: var(--text-dim); font-size: .9rem; max-width: 40rem; }
+
+.shots { display: grid; gap: 2rem; }
+@media (min-width: 60rem) { .shots.two { grid-template-columns: 1fr 1fr; } }
+
+/* ---- feature grid ---- */
+
+.features { display: grid; gap: 1rem; margin-top: 1.5rem; }
+@media (min-width: 46rem) { .features { grid-template-columns: 1fr 1fr; } }
+.feature {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg-soft); padding: 1rem 1.1rem;
+}
+.feature h3 { margin: 0 0 .35rem; font-size: 1rem; }
+.feature p { margin: 0; color: var(--text-dim); font-size: .93rem; }
+
+/* ---- tables ---- */
+
+.table-scroll { overflow-x: auto; margin: 1.25rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--line); }
+th { color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+
+/* ---- documentation layout ---- */
+
+.doc { display: block; }
+@media (min-width: 64rem) {
+    .doc { display: grid; grid-template-columns: 15rem 1fr; gap: 3rem; align-items: start; }
+    .doc-nav { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; }
+}
+.doc-nav ul { list-style: none; margin: 0; padding: 0; font-size: .9rem; }
+.doc-nav li { margin: 0; }
+.doc-nav a {
+    display: block; padding: .28rem .6rem; border-radius: 6px;
+    color: var(--text-dim); border-left: 2px solid transparent;
+}
+.doc-nav a:hover { color: var(--text); text-decoration: none; }
+.doc-nav a.active { color: var(--accent); background: var(--accent-dim); border-left-color: var(--accent); }
+.doc-nav .group { margin-top: 1rem; font-size: .78rem; text-transform: uppercase;
+                  letter-spacing: .06em; color: var(--text-dim); padding: 0 .6rem; }
+
+.doc-body section { scroll-margin-top: 76px; }
+.doc-body h2:first-of-type { margin-top: 1rem; }
+
+/* ---- footer ---- */
+
+footer {
+    margin-top: 4rem; border-top: 1px solid var(--line);
+    padding: 2rem 0 3rem; color: var(--text-dim); font-size: .88rem;
+}
+footer p { margin: .35rem 0; }
