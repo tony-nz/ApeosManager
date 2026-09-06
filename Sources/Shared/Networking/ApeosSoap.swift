@@ -431,8 +431,11 @@ extension ApeosClient {
         }
     }
 
-    func setUser(_ u: DeviceUser) async throws {
-        try await writeUser(u, password: nil)
+    /// Updates an existing user. A non-nil `password` replaces the stored one; nil
+    /// leaves whatever the device already holds, which is what an edit with the
+    /// password field left blank means.
+    func setUser(_ u: DeviceUser, password: String? = nil) async throws {
+        try await writeUser(u, password: password)
     }
 
     /// Applies name and/or password to an existing user.

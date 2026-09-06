@@ -170,9 +170,17 @@ struct BillingCounter: Codable, Sendable {
 
 // MARK: - /home/api/paper-tray
 
-struct PaperTray: Codable, Sendable, Identifiable {
+// Read-only: the app never writes a tray back, and the decoder reads keys the
+// firmware spells more than one way, which a synthesised encoder cannot mirror.
+struct PaperTray: Decodable, Sendable, Identifiable {
     let nameId: String
+    /// Unique only within a tray type: the bypass is "1_SMH" while the first cassette
+    /// is "1_TRAY", so both report LogicalNum 1. Identifying a tray by it alone gives
+    /// SwiftUI two rows with one id, which is undefined behaviour and did crash the
+    /// Trays table. PhysicalNum is the per-device number, and the number the printer's
+    /// own web UI prints on each tray.
     let logicalNum: Int
+    let physicalNum: Int?
     let logicalTrayType: String?
     let mediumSize: String?
     let mediumType: String?
@@ -180,35 +188,43 @@ struct PaperTray: Codable, Sendable, Identifiable {
     let mediumSizeSupported: [String]?
     let mediumTypeSupported: [String]?
     let status: String?
-    let volume: Int?
+    /// Paper left, as a percentage. Nil where the device cannot measure this tray: the
+    /// firmware answers with a negative sentinel (-2, -3) rather than omitting the key,
+    /// and a bypass tray reports one even on a model that measures its cassettes.
+    let remaining: Int?
 
-    var id: Int { logicalNum }
+    var id: String { "\(physicalNum ?? logicalNum)_\(nameId)" }
 
     enum CodingKeys: String, CodingKey {
-        case nameId = "NameId", logicalNum = "LogicalNum"
+        case nameId = "NameId", logicalNum = "LogicalNum", physicalNum = "PhysicalNum"
         case logicalTrayType = "LogicalTrayType"
-        case mediumSize = "MediumSize", mediumType = "MediumType", mediumColor = "MediumColor"
+        case mediumSize = "MediumSize", mediumType = "MediumType"
+        case color = "Color", mediumColor = "MediumColor"
         case mediumSizeSupported = "MediumSizeSupported"
         case mediumTypeSupported = "MediumTypeSupported"
-        case status = "Status", volume = "Volume"
+        case status = "Status", remaining = "Remaining", volume = "Volume"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         nameId               = c.value(.nameId, or: "TRAY")
         logicalNum           = c.decodeLenientInt(.logicalNum) ?? 0
+        physicalNum          = c.decodeLenientInt(.physicalNum)
         logicalTrayType      = c.value(.logicalTrayType, or: nil)
         mediumSize           = c.value(.mediumSize, or: nil)
         mediumType           = c.value(.mediumType, or: nil)
-        mediumColor          = c.value(.mediumColor, or: nil)
+        // The paper's own colour is "Color" on these devices; "MediumColor" is read as
+        // well because the size and type keys either side of it are both prefixed.
+        mediumColor          = c.value(.color, or: nil) ?? c.value(.mediumColor, or: nil)
         mediumSizeSupported  = c.value(.mediumSizeSupported, or: nil)
         mediumTypeSupported  = c.value(.mediumTypeSupported, or: nil)
         status               = c.value(.status, or: nil)
-        volume               = c.decodeLenientInt(.volume)
+        let level            = c.decodeLenientInt(.remaining) ?? c.decodeLenientInt(.volume)
+        remaining            = level.flatMap { $0 < 0 ? nil : min($0, 100) }
     }
 }
 
-struct PaperTrayInfo: Codable, Sendable {
+struct PaperTrayInfo: Decodable, Sendable {
     let volumeDetection: Bool?
     let paperTrays: [PaperTray]
     enum CodingKeys: String, CodingKey {

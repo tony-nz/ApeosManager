@@ -211,11 +211,14 @@ enum DemoFleet {
         // nothing at the top of the screen mentions either.
         let three: (String, Int) = p.condition == .hiddenFault ? ("EMPTY", 0) : ("READY", 100)
         return trays([
-            (1, "TRAY_1", "A4",  "PLAIN",      "WHITE",  "READY", 100),
-            (2, "TRAY_2", "A4",  "PLAIN",      "WHITE",  "READY", 75),
-            (3, "TRAY_3", "A3",  "PLAIN",      "WHITE",  three.0, three.1),
-            (4, "TRAY_4", "A4",  "RECYCLED",   "WHITE",  "NEAR_EMPTY", 25),
-            (5, "BYPASS", "A4",  "HEAVYWEIGHT", "CREAM", "READY", 50),
+            (1, "TRAY", "A4", "stationary",  "WHITE", "READY", 100),
+            (2, "TRAY", "A4", "stationary",  "WHITE", "READY", 75),
+            (3, "TRAY", "A3", "stationary",  "WHITE", three.0, three.1),
+            (4, "TRAY", "A4", "recycled",    "WHITE", "NEAR_EMPTY", 25),
+            // The bypass is the awkward one on a real device, and the fixture keeps
+            // both of its quirks: it reports no level at all, and its LogicalNum
+            // collides with the first cassette's.
+            (5, "SMH",  "A4", "heavyWeight", "CREAM", "READY", -3),
         ])
     }
 
@@ -601,16 +604,23 @@ enum DemoFleet {
         rows.compactMap { decode(UsageCounter.self, ["DomesticName": $0.0, "Count": $0.1]) }
     }
 
+    /// Rows are (physical number, tray type, size, media type, colour, status, level),
+    /// and are turned into exactly the JSON an Apeos serves from /home/api/paper-tray.
+    /// Inventing friendlier field names here once hid a decode that fetched nothing on
+    /// every real printer, so the fixture speaks the firmware's spelling.
     private static func trays(
         _ rows: [(Int, String, String, String, String, String, Int)]
     ) -> [PaperTray] {
-        rows.compactMap { num, name, size, type, colour, status, volume in
-            decode(PaperTray.self, [
-                "NameId": name, "LogicalNum": num, "LogicalTrayType": "PAPER_TRAY",
-                "MediumSize": size, "MediumType": type, "MediumColor": colour,
-                "MediumSizeSupported": ["A3", "A4", "A5", "B4", "B5"],
-                "MediumTypeSupported": ["PLAIN", "RECYCLED", "HEAVYWEIGHT", "LABEL"],
-                "Status": status, "Volume": volume,
+        rows.compactMap { physical, kind, size, type, colour, status, remaining in
+            // Logical numbering restarts per tray type, the way the firmware does it.
+            let logical = kind == "SMH" ? 1 : physical
+            return decode(PaperTray.self, [
+                "NameId": "\(physical)_\(kind)", "LogicalNum": logical,
+                "PhysicalNum": physical, "LogicalTrayType": kind,
+                "MediumSize": size, "MediumType": type, "Color": colour,
+                "MediumSizeSupported": ["A3", "A4", "A5", "JIS_B4", "JIS_B5"],
+                "MediumTypeSupported": ["stationary", "recycled", "heavyWeight", "labels"],
+                "Status": status, "Remaining": remaining,
             ])
         }
     }

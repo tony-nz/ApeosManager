@@ -14,6 +14,9 @@ final class DeviceViewModel: ObservableObject {
     @Published var supplies: [Supply] = []
     @Published var counters: [UsageCounter] = []
     @Published var trays: [PaperTray] = []
+    /// False on models that cannot measure how much paper is in a tray; their
+    /// Volume figures are meaningless, so the Trays tab shows no level for them.
+    @Published var trayVolumeDetection: Bool?
     @Published var faults: [FaultEntry] = []
     @Published var jobs: [JobRecord] = []
     @Published var contacts: [Contact] = []
@@ -169,7 +172,11 @@ final class DeviceViewModel: ObservableObject {
         await run("status")       { status   = try await api.status() }
         await run("supplies")     { supplies = try await api.supplies().supplies }
         await run("counters")     { counters = try await api.counters().usageCounters }
-        await run("trays")        { trays    = try await api.trays().paperTrays }
+        await run("trays")        {
+            let info = try await api.trays()
+            trays = info.paperTrays
+            trayVolumeDetection = info.volumeDetection
+        }
         await run("fault log")    { faults   = try await api.faultHistory().faultHistory }
         await run("job history")  { jobs     = try await api.jobHistory(max: jobLimit) }
         await run("address book") { contacts = try await api.addressBook() }
@@ -297,7 +304,7 @@ final class DeviceViewModel: ObservableObject {
         }
         do {
             if isNew { try await api.addUser(u, password: password) }
-            else { try await api.setUser(u) }
+            else { try await api.setUser(u, password: password) }
             await loadDirectory()
             // The device accepts some writes without applying them, so confirm.
             // This device accepts writes it does not apply, so confirm by re-reading.
@@ -651,6 +658,7 @@ final class DeviceViewModel: ObservableObject {
         supplies = DemoFleet.supplies(demo)
         counters = DemoFleet.counters(demo)
         trays = DemoFleet.trays(demo)
+        trayVolumeDetection = true
         faults = DemoFleet.faults(demo)
         jobs = DemoFleet.jobs(demo, max: jobLimit)
         contacts = DemoFleet.contacts(demo)

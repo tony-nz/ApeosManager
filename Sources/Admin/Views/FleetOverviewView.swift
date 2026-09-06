@@ -77,10 +77,62 @@ struct FleetOverviewView: View {
     }
 }
 
+/// Names what a row of gauges is measuring. One fixed width for every row, so the
+/// gauges below the label line up with the ones above them.
+private struct RowLabel: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(width: 38, alignment: .leading)
+            .padding(.top, 2)
+    }
+}
+
+/// One tray on a fleet card, drawn to the same size as the toner gauge above it so the
+/// two rows read as one scale, and numbered the way the device numbers them.
+private struct CardTray: View {
+    let tray: PaperTray
+
+    var body: some View {
+        let level = TrayFormat.level(tray) ?? 0
+        VStack(spacing: 3) {
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.secondary.opacity(0.18))
+                    .frame(width: 26, height: 44)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(TrayFormat.colour(level))
+                    .frame(width: 26, height: level == 0 ? 0 : max(2, 44 * CGFloat(level) / 100))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.separator))
+            Text(TrayFormat.number(tray))
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(level < 26 ? TrayFormat.colour(level) : .secondary)
+        }
+        .help("\(TrayFormat.title(tray)) — \(TrayFormat.media(tray)), \(level)%")
+    }
+}
+
 private struct PrinterCard: View {
     @ObservedObject var vm: DeviceViewModel
 
+    /// One gauge row: the block, the gap under it, and its number.
+    private static let gaugeRow: CGFloat = 44 + 3 + 14
+    /// Every card stands as tall as a full one -- name, toner row, rule, paper row --
+    /// so an offline printer, or one whose trays cannot be measured, leaves a gap
+    /// instead of a short card in a ragged grid.
+    private static let contentHeight: CGFloat = 34 + 10 + gaugeRow + 10 + 1 + 10 + gaugeRow
+
     private var toners: [Supply] { vm.supplies.filter { $0.family == "TONER" } }
+    /// Only trays the device measured; an unmeasurable one has no level to draw.
+    private var trays: [PaperTray] {
+        vm.trayVolumeDetection == false ? [] : vm.trays.filter { $0.remaining != nil }
+    }
     private func counter(_ key: String) -> Int? {
         vm.counters.first { $0.domesticName == key }?.count
     }
@@ -108,7 +160,8 @@ private struct PrinterCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    HStack(spacing: 8) {
+                    HStack(alignment: .top, spacing: 8) {
+                        RowLabel("Toner")
                         ForEach(toners) { s in
                             VStack(spacing: 3) {
                                 ZStack(alignment: .bottom) {
@@ -138,9 +191,18 @@ private struct PrinterCard: View {
                             }
                         }
                     }
+
+                    if !trays.isEmpty {
+                        Divider()
+                        HStack(alignment: .top, spacing: 8) {
+                            RowLabel("Paper")
+                            ForEach(trays) { CardTray(tray: $0) }
+                            Spacer(minLength: 0)
+                        }
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: Self.contentHeight, alignment: .topLeading)
         }
         .task { await vm.connect() }
     }

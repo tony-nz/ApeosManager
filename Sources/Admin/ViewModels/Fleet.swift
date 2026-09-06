@@ -6,7 +6,12 @@ import SwiftUI
 /// screens share a single session, rather than each view signing in again.
 @MainActor
 final class Fleet: ObservableObject {
-    @Published private(set) var devices: [UUID: DeviceViewModel] = [:]
+    /// Deliberately not @Published. `viewModel(for:)` inserts into it, and every fleet
+    /// screen calls `ordered()` from a computed property read inside its own body --
+    /// so publishing here means publishing from within a view update, which SwiftUI
+    /// warns is undefined behaviour. Nothing observes this dictionary: views stay live
+    /// through the per-device forwarding below, and through PrinterStore.printers.
+    private(set) var devices: [UUID: DeviceViewModel] = [:]
     @Published var isLoadingAll = false
 
     private let store: PrinterStore
