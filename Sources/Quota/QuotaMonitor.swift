@@ -151,8 +151,8 @@ final class QuotaMonitor: ObservableObject {
     /// trade: a light printer in a busy office may have nothing in the last hundred
     /// jobs, but raising the bound costs a request per twenty on every printer at every
     /// refresh. Five pages is enough to populate the recent-activity list in practice.
-    private static let jobScanLimit = 100
-    private static let jobsKept = 25
+    private nonisolated static let jobScanLimit = 100
+    private nonisolated static let jobsKept = 25
 
     private nonisolated static func describe(_ error: Error) -> String {
         switch error {

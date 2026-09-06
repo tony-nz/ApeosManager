@@ -237,7 +237,7 @@ extension KeyedDecodingContainer {
     /// missing non-optional key. Every field is therefore read through a fallback so one
     /// absent key cannot discard an otherwise valid response.
     func value<T: Decodable>(_ key: Key, or fallback: T) -> T {
-        (try? decodeIfPresent(T.self, forKey: key)) as? T ?? fallback
+        (try? decode(T.self, forKey: key)) ?? fallback
     }
 }
 

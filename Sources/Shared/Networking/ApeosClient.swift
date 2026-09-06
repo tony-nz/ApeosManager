@@ -282,7 +282,7 @@ final class ApeosClient: NSObject {
             let stored = (made["DestList"] as? [[String: Any]]) ?? []
             if stored.isEmpty {
                 lastNote = "the entry was created without its email address"
-                if let id = made["ContactId"] as? String { try? await deleteContact(id: id) }
+                if let id = made["ContactId"] as? String { _ = try? await deleteContact(id: id) }
                 continue
             }
             return made["ContactId"] as? String ?? ""
