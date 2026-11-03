@@ -23,7 +23,8 @@ extension ApeosClient {
         case "UnauthorizedUser",
              "PermissionDenied":  return "the signed-in account is not permitted to do this"
         case "InvalidArgument":   return "one of the values was not acceptable"
-        case "InvalidOperation":  return "this device does not support that operation"
+        case "InvalidOperation":  return "the device would not carry out that operation"
+        case "usrf:DuplicateUserID": return "a user with that ID is already on this printer"
         case "MaximumSizeExceeded": return "the device has no room for another entry"
         case "AlreadyExists":     return "an entry with that ID already exists"
         default:                  return "the device refused the request"
@@ -210,10 +211,15 @@ extension ApeosClient {
         // inside an otherwise successful 200 response. Both mean the write did not apply.
         if let fault = try? doc.nodes(forXPath: "//*[local-name()='Fault']").first as? XMLElement {
             let str = ((try? fault.nodes(forXPath: ".//*[local-name()='faultstring']").first) ?? nil)?.stringValue
-            let sub = ((try? fault.nodes(forXPath: ".//*[local-name()='Value']").first) ?? nil)?
-                .stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let code = sub ?? "SOAP:Fault"
-            throw ApeosError.soapFault(code, str ?? Self.explain(code))
+            // Subcodes nest, general to specific: flt:InvalidOperation can wrap
+            // usrf:DuplicateUserID. `code` stays the outer one, which is what callers
+            // branch on, while the explanation uses the inner one when it is known.
+            let values = ((try? fault.nodes(forXPath: ".//*[local-name()='Value']")) ?? [])
+                .compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let code = values.first ?? "SOAP:Fault"
+            let duplicate = "usrf:DuplicateUserID"
+            let explained = Self.explain(values.contains(duplicate) ? duplicate : code)
+            throw ApeosError.soapFault(code, str ?? explained)
         }
         return doc
     }

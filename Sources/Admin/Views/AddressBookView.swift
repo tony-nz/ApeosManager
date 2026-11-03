@@ -501,8 +501,6 @@ struct ContactEditor: View {
 /// Adding requires an email address, because a contact with no destination cannot be
 /// scanned to; the device accepts one and it simply sits there being useless.
 struct FleetContactEditor: View {
-    let title: String
-    let sources: [UUID: Contact]
     let devices: [DeviceViewModel]
 
     @Environment(\.dismiss) private var dismiss
@@ -515,15 +513,16 @@ struct FleetContactEditor: View {
     @State private var finished = false
     @State private var confirmRemovals = false
     @State private var results: [UUID: String] = [:]
-
-    private let originalOn: Set<UUID>
-    private let originalName: String
-    private let originalCompany: String
-    private let originalEmail: String
+    /// The record each printer holds now, which is what edits are measured against and
+    /// what deletes and updates act on. The sheet stays open after saving, so the records
+    /// it opened with go stale as soon as a save lands: an entry just added had no record
+    /// here, so unticking it deleted nothing and saving again created it a second time.
+    @State private var held: [UUID: Contact]
+    @State private var savedName: String
+    @State private var savedCompany: String
+    @State private var savedEmail: String
 
     init(title: String, sources: [UUID: Contact], devices: [DeviceViewModel]) {
-        self.title = title
-        self.sources = sources
         self.devices = devices
 
         let sample = sources.values.first
@@ -534,24 +533,24 @@ struct FleetContactEditor: View {
         _company = State(initialValue: c)
         _email = State(initialValue: e)
         _membership = State(initialValue: Set(sources.keys))
-        originalOn = Set(sources.keys)
-        originalName = n
-        originalCompany = c
-        originalEmail = e
+        _held = State(initialValue: sources)
+        _savedName = State(initialValue: n.isEmpty ? title : n)
+        _savedCompany = State(initialValue: c)
+        _savedEmail = State(initialValue: e)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var trimmedEmail: String { email.trimmingCharacters(in: .whitespaces) }
     private var additions: [DeviceViewModel] {
-        devices.filter { membership.contains($0.printer.id) && !originalOn.contains($0.printer.id) }
+        devices.filter { membership.contains($0.printer.id) && held[$0.printer.id] == nil }
     }
     private var removals: [DeviceViewModel] {
-        devices.filter { !membership.contains($0.printer.id) && originalOn.contains($0.printer.id) }
+        devices.filter { !membership.contains($0.printer.id) && held[$0.printer.id] != nil }
     }
     private var detailsChanged: Bool {
-        trimmedName != originalName
-            || company.trimmingCharacters(in: .whitespaces) != originalCompany
-            || trimmedEmail != originalEmail
+        trimmedName != savedName
+            || company.trimmingCharacters(in: .whitespaces) != savedCompany
+            || trimmedEmail != savedEmail
     }
     private var hasWork: Bool { detailsChanged || !additions.isEmpty || !removals.isEmpty }
     private var addingWithoutAddress: Bool { !additions.isEmpty && trimmedEmail.isEmpty }
@@ -562,8 +561,8 @@ struct FleetContactEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.title2).bold()
-                Text("on \(originalOn.count) of \(devices.count) printers")
+                Text(savedName).font(.title2).bold()
+                Text("on \(held.count) of \(devices.count) printers")
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -577,8 +576,8 @@ struct FleetContactEditor: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Button("All") { membership = Set(devices.map(\.printer.id)) }
-                        Button("None") { membership = [] }
+                        Button("All") { membership = Set(devices.map(\.printer.id)); results = [:] }
+                        Button("None") { membership = []; results = [:] }
                         Spacer()
                         Text("\(membership.count) of \(devices.count)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -587,8 +586,11 @@ struct FleetContactEditor: View {
                     ForEach(devices, id: \.printer.id) { vm in
                         ContactMembershipRow(vm: vm,
                                              isOn: membership.contains(vm.printer.id),
-                                             was: originalOn.contains(vm.printer.id),
+                                             was: held[vm.printer.id] != nil,
                                              result: results[vm.printer.id]) {
+                            // A result describes the last save. Left up, it would hide
+                            // "will be removed".
+                            results[vm.printer.id] = nil
                             if membership.contains(vm.printer.id) { membership.remove(vm.printer.id) }
                             else { membership.insert(vm.printer.id) }
                         }
@@ -649,22 +651,57 @@ struct FleetContactEditor: View {
         defer { running = false; finished = true }
 
         let company = company.trimmingCharacters(in: .whitespaces)
-        for vm in devices {
-            let held = sources[vm.printer.id]
-            let wanted = membership.contains(vm.printer.id)
+        let writingDetails = detailsChanged
+        var detailsWritten = true
 
-            if wanted, let held {
-                guard detailsChanged else { continue }
-                results[vm.printer.id] = await vm.updateContact(held, displayName: trimmedName,
-                                                                company: company, email: trimmedEmail)
-                    ? "updated" : (vm.contactsError ?? "could not update")
+        for vm in devices {
+            let id = vm.printer.id
+            let wanted = membership.contains(id)
+
+            if wanted, let current = held[id] {
+                guard writingDetails else { continue }
+                if await vm.updateContact(current, displayName: trimmedName,
+                                          company: company, email: trimmedEmail) {
+                    results[id] = "updated"
+                    if let fresh = vm.contacts.first(where: { $0.contactId == current.contactId }) {
+                        held[id] = fresh
+                    }
+                } else {
+                    results[id] = vm.contactsError ?? "could not update"
+                    detailsWritten = false
+                }
             } else if wanted {
-                results[vm.printer.id] = await vm.addContact(named: trimmedName, email: trimmedEmail)
-                    ? "added" : (vm.contactsError ?? "could not add")
-            } else if let held {
-                results[vm.printer.id] = await vm.deleteContact(held)
-                    ? "removed" : (vm.contactsError ?? "could not remove")
+                if await vm.addContact(named: trimmedName, email: trimmedEmail) {
+                    // The device assigns the id, so the new record is found by address.
+                    if let fresh = vm.contacts.first(where: { $0.fleetKey == trimmedEmail.lowercased() }) {
+                        held[id] = fresh
+                        results[id] = "added"
+                    } else {
+                        // Added but not read back, so there is no id to delete it by.
+                        // Left ticked it would stay pending, and saving would add a second.
+                        membership.remove(id)
+                        results[id] = "added, but not listed yet; reload to change it"
+                    }
+                } else {
+                    results[id] = vm.contactsError ?? "could not add"
+                    detailsWritten = false
+                }
+            } else if let current = held[id] {
+                if await vm.deleteContact(current) {
+                    held[id] = nil
+                    results[id] = "removed"
+                } else {
+                    results[id] = vm.contactsError ?? "could not remove"
+                }
             }
+        }
+
+        // Anything refused stays pending, so Save remains available to retry it.
+        if writingDetails, detailsWritten {
+            name = trimmedName
+            savedName = trimmedName
+            savedCompany = company
+            savedEmail = trimmedEmail
         }
     }
 }

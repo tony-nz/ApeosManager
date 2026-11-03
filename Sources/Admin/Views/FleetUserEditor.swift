@@ -46,24 +46,34 @@ struct FleetUserEditor: View {
     @State private var finished = false
     @State private var confirmRemovals = false
     @State private var results: [UUID: String] = [:]
+    /// What the printers hold now, which is what edits are measured against. The sheet
+    /// stays open after saving, so `original` goes stale as soon as a save lands: judged
+    /// against it, a printer just added still read as an addition, Save stayed enabled
+    /// and created the account a second time, and unticking that printer queued nothing.
+    @State private var present: Set<UUID>
+    @State private var savedName: String
+    @State private var savedType: String
 
     init(user: FleetUser) {
         self.original = user
         _name = State(initialValue: user.name)
         _type = State(initialValue: user.type)
         _membership = State(initialValue: user.presentOn)
+        _present = State(initialValue: user.presentOn)
+        _savedName = State(initialValue: user.name)
+        _savedType = State(initialValue: user.type)
     }
 
     private var devices: [DeviceViewModel] { fleet.ordered() }
     private var readable: [DeviceViewModel] { devices.filter { $0.isSignedIn || !$0.users.isEmpty } }
     private var additions: [DeviceViewModel] {
-        readable.filter { membership.contains($0.printer.id) && !original.presentOn.contains($0.printer.id) }
+        readable.filter { membership.contains($0.printer.id) && !present.contains($0.printer.id) }
     }
     private var removals: [DeviceViewModel] {
-        readable.filter { !membership.contains($0.printer.id) && original.presentOn.contains($0.printer.id) }
+        readable.filter { !membership.contains($0.printer.id) && present.contains($0.printer.id) }
     }
     private var detailsChanged: Bool {
-        name != original.name || type != original.type || !password.isEmpty
+        name != savedName || type != savedType || !password.isEmpty
     }
     private var hasWork: Bool { detailsChanged || !additions.isEmpty || !removals.isEmpty }
     /// Unticking the last printer is not "remove from two printers", it is "this account
@@ -73,7 +83,7 @@ struct FleetUserEditor: View {
     /// Printers that actually hold the account. The meters and permissions of a printer
     /// the user is not on do not exist, so those are never offered.
     private var holders: [DeviceViewModel] {
-        readable.filter { original.presentOn.contains($0.printer.id) }
+        readable.filter { present.contains($0.printer.id) }
     }
     private var selectedDevice: DeviceViewModel? {
         holders.first { $0.printer.id == meterPrinter } ?? holders.first
@@ -85,9 +95,9 @@ struct FleetUserEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(original.name.isEmpty ? original.userID : original.name)
+                Text(savedName.isEmpty ? original.userID : savedName)
                     .font(.title2).bold()
-                Text("\(original.userID) · on \(original.presentOn.count) of \(readable.count) printers")
+                Text("\(original.userID) · on \(present.count) of \(readable.count) printers")
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -111,6 +121,8 @@ struct FleetUserEditor: View {
         // One height for all four panes: they differ enough in content that letting the
         // sheet size itself would resize the window on every tab click.
         .frame(width: 580, height: 560, alignment: .topLeading)
+        // A result describes the last save. Left up, it would hide "will be removed".
+        .onChange(of: membership) { results = [:] }
         .alert(removingEverywhere
                ? "Remove \(original.userID) from every printer?"
                : "Remove \(original.userID) from \(removals.count) printer(s)?",
@@ -161,7 +173,7 @@ struct FleetUserEditor: View {
                     ForEach(readable, id: \.printer.id) { vm in
                         MembershipRow(vm: vm,
                                       isOn: membership.contains(vm.printer.id),
-                                      was: original.presentOn.contains(vm.printer.id),
+                                      was: present.contains(vm.printer.id),
                                       result: results[vm.printer.id]) {
                             if membership.contains(vm.printer.id) { membership.remove(vm.printer.id) }
                             else { membership.insert(vm.printer.id) }
@@ -251,22 +263,51 @@ struct FleetUserEditor: View {
                                userName: name.trimmingCharacters(in: .whitespaces),
                                userType: type)
 
-        for vm in additions {
-            await vm.saveUser(draft, password: password.isEmpty ? nil : password, isNew: true)
+        // Fixed up front, because `present` changes as this runs and a printer added
+        // below must not then be written again as an update.
+        let toAdd = additions
+        let toRemove = removals
+        let writingDetails = detailsChanged
+        let toUpdate = writingDetails
+            ? readable.filter { membership.contains($0.printer.id) && present.contains($0.printer.id) }
+            : []
+        let newPassword = password.isEmpty ? nil : password
+        var detailsWritten = true
+
+        // Each step re-reads what the device lists rather than trusting its own outcome.
+        // An account can be created and its name then refused, and that must still count
+        // as present, or the next save would try to create it again.
+        func holdsAccount(_ vm: DeviceViewModel) -> Bool {
+            vm.users.contains { $0.userID == original.userID }
+        }
+
+        for vm in toAdd {
+            await vm.saveUser(draft, password: newPassword, isNew: true)
             results[vm.printer.id] = vm.usersError ?? "added"
+            if vm.usersError != nil { detailsWritten = false }
+            if holdsAccount(vm) { present.insert(vm.printer.id) }
         }
-        if detailsChanged {
-            for vm in readable where membership.contains(vm.printer.id)
-                && original.presentOn.contains(vm.printer.id) {
-                await vm.saveUser(draft, password: password.isEmpty ? nil : password, isNew: false)
-                results[vm.printer.id] = vm.usersError ?? "updated"
-            }
+        for vm in toUpdate {
+            await vm.saveUser(draft, password: newPassword, isNew: false)
+            results[vm.printer.id] = vm.usersError ?? "updated"
+            if vm.usersError != nil { detailsWritten = false }
         }
-        for vm in removals {
-            if let existing = vm.users.first(where: { $0.userID == original.userID }) {
-                await vm.deleteUser(existing)
-                results[vm.printer.id] = vm.usersError ?? "removed"
+        for vm in toRemove {
+            guard let existing = vm.users.first(where: { $0.userID == original.userID }) else {
+                results[vm.printer.id] = "not in this printer's list; reload and try again"
+                continue
             }
+            await vm.deleteUser(existing)
+            results[vm.printer.id] = vm.usersError ?? "removed"
+            if !holdsAccount(vm) { present.remove(vm.printer.id) }
+        }
+
+        // Anything refused stays pending, so Save remains available to retry it.
+        if writingDetails, detailsWritten {
+            name = draft.userName
+            savedName = draft.userName
+            savedType = type
+            password = ""
         }
     }
 }
