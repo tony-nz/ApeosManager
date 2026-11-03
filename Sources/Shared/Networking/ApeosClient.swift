@@ -37,6 +37,9 @@ final class ApeosClient: NSObject {
     var soapCredentials: (user: String, password: String)?
     /// Negotiated on the first authenticated SOAP call; see ApeosSoap.swift.
     var soapAuthStrategy: SoapAuthStrategy?
+    /// Paths still refused straight after a fresh login. That is a limit of this account
+    /// or model rather than an expired session, so signing in again would not help.
+    private var forbiddenDespiteLogin: Set<String> = []
 
     var urlSession: URLSession { session }
 
@@ -107,6 +110,7 @@ final class ApeosClient: NSObject {
         isAuthenticated = false
         soapCredentials = nil
         soapAuthStrategy = nil
+        forbiddenDespiteLogin = []
     }
 
     // MARK: - Generic verbs
@@ -136,12 +140,40 @@ final class ApeosClient: NSObject {
     func getRaw(_ path: String) async throws -> Data {
         var req = URLRequest(url: try url(path))
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else { throw ApeosError.http(-1, path) }
-        if http.statusCode == 403 || http.statusCode == 401 { throw ApeosError.notAuthenticated }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ApeosError.http(http.statusCode, path)
+        return try await perform(req, path: path)
+    }
+
+    /// Sends a request, renewing the session once if the device says it has lapsed.
+    ///
+    /// The device drops an idle `ssid` session, and the app can stay open for weeks.
+    /// Retrying a rejected write is safe, as a 401 or 403 means it was not carried out.
+    private func perform(_ req: URLRequest, path: String) async throws -> Data {
+        func attempt() async throws -> (Data, Int) {
+            let (data, resp) = try await session.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { throw ApeosError.http(-1, path) }
+            return (data, http.statusCode)
         }
+        func isRefusal(_ status: Int) -> Bool { status == 401 || status == 403 }
+
+        var (data, status) = try await attempt()
+        if isRefusal(status) {
+            guard isAuthenticated, let c = soapCredentials,
+                  !forbiddenDespiteLogin.contains(path) else { throw ApeosError.notAuthenticated }
+            do {
+                try await login(userID: c.user, password: c.password)
+            } catch ApeosError.loginFailed {
+                // Only a refusal ends the session. A network failure says nothing about
+                // the password, so it propagates as itself and the session stands.
+                isAuthenticated = false
+                throw ApeosError.notAuthenticated
+            }
+            (data, status) = try await attempt()
+            if isRefusal(status) {
+                forbiddenDespiteLogin.insert(path)
+                throw ApeosError.notAuthenticated
+            }
+        }
+        guard (200..<300).contains(status) else { throw ApeosError.http(status, path) }
         return data
     }
 
@@ -168,13 +200,7 @@ final class ApeosClient: NSObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.httpBody = body
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else { throw ApeosError.http(-1, path) }
-        if http.statusCode == 403 || http.statusCode == 401 { throw ApeosError.notAuthenticated }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ApeosError.http(http.statusCode, path)
-        }
-        return data
+        return try await perform(req, path: path)
     }
 
     // MARK: - Typed reads (unauthenticated on tested firmware)

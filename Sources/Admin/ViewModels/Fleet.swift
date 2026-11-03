@@ -26,8 +26,11 @@ final class Fleet: ObservableObject {
         if let existing = devices[printer.id], existing.printer.host == printer.host {
             return existing
         }
-        let vm = DeviceViewModel(printer: printer, password: store.password(for: printer))
-        vm.passwordLocked = store.passwordLocked(for: printer)
+        let saved = store.savedPassword(for: printer)
+        var password: String?
+        if case .found(let found) = saved { password = found }
+        let vm = DeviceViewModel(printer: printer, password: password)
+        if case .denied = saved { vm.passwordLocked = true }
         devices[printer.id] = vm
         childSubscriptions[printer.id] = vm.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()

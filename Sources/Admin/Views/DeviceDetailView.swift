@@ -109,7 +109,13 @@ struct SignInSheet: View {
                         await vm.signIn(password: password)
                         busy = false
                         if vm.isSignedIn {
-                            if remember { store.setPassword(password, for: vm.printer) }
+                            if remember {
+                                if store.setPassword(password, for: vm.printer) {
+                                    vm.passwordSaved(password)
+                                } else {
+                                    vm.notice = "Signed in, but macOS would not save the password to the keychain, so it will be asked for again."
+                                }
+                            }
                             dismiss()
                         }
                     }

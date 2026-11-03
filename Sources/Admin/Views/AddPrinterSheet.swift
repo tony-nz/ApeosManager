@@ -10,6 +10,7 @@ struct AddPrinterSheet: View {
     @State private var password = ""
     @State private var probing = false
     @State private var probeResult: String?
+    @State private var passwordNotSaved = false
 
     // Discovery
     @State private var discovery = PrinterDiscovery()
@@ -91,8 +92,11 @@ struct AddPrinterSheet: View {
                     let p = Printer(name: name.isEmpty ? host : name,
                                     host: host.trimmingCharacters(in: .whitespaces),
                                     adminUser: adminUser)
-                    store.add(p, password: password)
-                    dismiss()
+                    if store.add(p, password: password) {
+                        dismiss()
+                    } else {
+                        passwordNotSaved = true
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(host.isEmpty)
@@ -102,6 +106,11 @@ struct AddPrinterSheet: View {
         .frame(width: 540)
         .onAppear { if prefix.isEmpty { prefix = defaultPrefix() } }
         .onDisappear { scanTask?.cancel() }
+        .alert("Password Not Saved", isPresented: $passwordNotSaved) {
+            Button("OK") { dismiss() }
+        } message: {
+            Text("The printer was added, but macOS would not save its password to the keychain. Sign in to the printer to try again.")
+        }
     }
 
     /// Printers are commonly on a different subnet from the Mac (here the host sits on

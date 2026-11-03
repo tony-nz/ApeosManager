@@ -8,17 +8,26 @@ enum Keychain {
     /// the literal it has always used, leaving passwords from earlier builds readable.
     private static let service = Bundle.main.bundleIdentifier ?? "nz.co.myers.ApeosManager"
 
-    static func set(_ password: String, account: String) {
+    /// Updates in place, adding only when there is nothing to update. Deleting first
+    /// would throw away the item's access list, and with it every "Always Allow" already
+    /// granted, and a failed add after a successful delete would lose the password.
+    /// Returns whether the password is now stored; a refusal must reach the operator,
+    /// who otherwise believes it was remembered.
+    @discardableResult
+    static func set(_ password: String, account: String) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(base as CFDictionary)
+        let value = Data(password.utf8)
+        let updated = SecItemUpdate(base as CFDictionary,
+                                    [kSecValueData as String: value] as CFDictionary)
+        guard updated == errSecItemNotFound else { return updated == errSecSuccess }
         var add = base
-        add[kSecValueData as String] = Data(password.utf8)
+        add[kSecValueData as String] = value
         add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-        SecItemAdd(add as CFDictionary, nil)
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     /// Distinguishes "no password saved" from "saved but this build cannot read it".
@@ -54,17 +63,8 @@ enum Keychain {
     }
 
     static func get(account: String) -> String? {
-        let q: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if case .found(let password) = lookup(account: account) { return password }
+        return nil
     }
 
     static func remove(account: String) {

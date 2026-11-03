@@ -41,10 +41,12 @@ final class PrinterStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: key)
     }
 
-    func add(_ p: Printer, password: String?) {
+    /// Returns false when the printer was added but its password could not be saved.
+    @discardableResult
+    func add(_ p: Printer, password: String?) -> Bool {
         printers.append(p)
-        guard !DemoMode.isEnabled else { return }
-        if let password, !password.isEmpty { Keychain.set(password, account: p.credentialAccount) }
+        guard !DemoMode.isEnabled, let password, !password.isEmpty else { return true }
+        return Keychain.set(password, account: p.credentialAccount)
     }
 
     func remove(_ p: Printer) {
@@ -55,18 +57,16 @@ final class PrinterStore: ObservableObject {
     /// The keychain is not consulted in a demo. It is keyed by printer id, so the
     /// fixture's own ids would miss -- but a lookup that happened to hit would hand a
     /// real administrator password to code that has no business holding one.
-    func password(for p: Printer) -> String? {
-        DemoMode.isEnabled ? nil : Keychain.get(account: p.credentialAccount)
+    ///
+    /// One call answers both "what is it" and "is it locked". Asking those separately
+    /// read the item twice, and so could raise two keychain prompts per printer.
+    func savedPassword(for p: Printer) -> Keychain.Lookup {
+        DemoMode.isEnabled ? .notFound : Keychain.lookup(account: p.credentialAccount)
     }
 
-    /// True when a password exists but this build is not permitted to read it.
-    func passwordLocked(for p: Printer) -> Bool {
-        guard !DemoMode.isEnabled else { return false }
-        if case .denied = Keychain.lookup(account: p.credentialAccount) { return true }
-        return false
-    }
-    func setPassword(_ pw: String, for p: Printer) {
-        guard !DemoMode.isEnabled else { return }
-        Keychain.set(pw, account: p.credentialAccount)
+    /// Returns false when the keychain refused to store the password.
+    func setPassword(_ pw: String, for p: Printer) -> Bool {
+        guard !DemoMode.isEnabled else { return true }
+        return Keychain.set(pw, account: p.credentialAccount)
     }
 }

@@ -43,8 +43,8 @@ final class DeviceViewModel: ObservableObject {
     /// Capability descriptors from /permissions/api, kept as JSON for reference.
     @Published var accountingJSON: [String: String] = [:]
 
-    /// The stored administrator password, if one was saved when the printer was added.
-    private let storedPassword: String?
+    /// The saved administrator password, if there is one.
+    private var storedPassword: String?
 
     /// The in-flight `connect()`, held on the model rather than left to the view that
     /// happened to ask for it. Every screen starts this from `.task`, and SwiftUI
@@ -53,9 +53,11 @@ final class DeviceViewModel: ObservableObject {
     /// awaiting it, navigating away mid-login no longer aborts the login, and callers
     /// arriving while one is running join it instead of starting a second.
     private var connectTask: Task<Void, Never>?
-    /// Whether the last sign-in was interrupted rather than refused. A refusal should
-    /// not be retried on every view appearance; an interruption must be.
-    private var lastSignInCancelled = false
+    /// Set when the device refuses the password or the operator signs out; cleared by
+    /// the next sign-in that works. Anything else that stops a sign-in -- a sleeping
+    /// printer, a network drop, a cancelled view -- says nothing about the password, so
+    /// it is retried. A refused password is not, as repeating it could lock the account.
+    private var autoSignInBlocked = false
 
     init(printer: Printer, password: String? = nil) {
         self.printer = printer
@@ -106,14 +108,13 @@ final class DeviceViewModel: ObservableObject {
             await loadAccounting()
             return
         }
-        if let storedPassword, !storedPassword.isEmpty, !isSignedIn {
+        if let storedPassword, !storedPassword.isEmpty, !isSignedIn, !autoSignInBlocked {
             await signIn(password: storedPassword)
-            // Latched only once the attempt settled. Marking the printer connected
-            // before trying -- as this did -- meant one interrupted sign-in left it
-            // signed out for the life of the process, because every later view saw
-            // `isConnected` and skipped the retry. That is what made a fresh sign-in
-            // necessary on almost every launch.
-            isConnected = !lastSignInCancelled
+            // Latched only once the attempt settled, meaning the device gave a verdict.
+            // Latching after any failure left one sleeping printer signed out for the
+            // life of the process, because every later view saw `isConnected` and
+            // skipped the retry -- and the saved password looked as if it had been lost.
+            isConnected = isSignedIn || autoSignInBlocked
         } else {
             if passwordLocked {
                 notice = "A saved password exists but this build of the app cannot read it — the app's code signature changed. Sign in once to store it again."
@@ -137,6 +138,7 @@ final class DeviceViewModel: ObservableObject {
         connectTask?.cancel()
         connectTask = nil
         isConnected = false
+        autoSignInBlocked = false
         await connect()
     }
 
@@ -154,6 +156,15 @@ final class DeviceViewModel: ObservableObject {
         if let demo {
             await demoRefresh(demo)
             return
+        }
+
+        // Refreshing is how the operator says "try again", so a saved password gets
+        // another go here. signIn refreshes for itself once it succeeds.
+        var signInFailure: String?
+        if !isSignedIn, !autoSignInBlocked, let storedPassword, !storedPassword.isEmpty {
+            await signIn(password: storedPassword)
+            if isSignedIn { return }
+            signInFailure = errorMessage
         }
 
         var failures: [String] = []
@@ -181,11 +192,20 @@ final class DeviceViewModel: ObservableObject {
         await run("job history")  { jobs     = try await api.jobHistory(max: jobLimit) }
         await run("address book") { contacts = try await api.addressBook() }
 
+        // The client tried to renew an expired session and the device refused the
+        // password, which has presumably been changed on the device.
+        if isSignedIn, client?.isAuthenticated == false {
+            isSignedIn = false
+            autoSignInBlocked = true
+            signInFailure = "The device no longer accepts the saved password. Choose Sign In."
+        }
+
         lastRefresh = Date()
         if failures.isEmpty {
-            errorMessage = nil
+            errorMessage = signInFailure
         } else if needsAuth && !isSignedIn {
-            errorMessage = "This device requires an administrator sign-in to read status. Choose Sign In."
+            errorMessage = signInFailure
+                ?? "This device requires an administrator sign-in to read status. Choose Sign In."
         } else {
             errorMessage = "Could not read: " + failures.joined(separator: ", ")
         }
@@ -193,7 +213,6 @@ final class DeviceViewModel: ObservableObject {
 
     func signIn(password: String) async {
         errorMessage = nil
-        lastSignInCancelled = false
         if let demo {
             // Any password is accepted: the demo has no credential to check one
             // against, and refusing the operator's guess would only be theatre.
@@ -207,6 +226,7 @@ final class DeviceViewModel: ObservableObject {
         do {
             let result = try await api.login(userID: printer.adminUser, password: password)
             isSignedIn = true
+            autoSignInBlocked = false
             notice = result.passwordChangeRequired != nil
                 ? "The device is requesting an administrator password change."
                 : nil
@@ -218,19 +238,29 @@ final class DeviceViewModel: ObservableObject {
             // The work was called off, not refused. Reporting "cancelled" as a sign-in
             // failure told the user their password was rejected when it was never tried.
             isSignedIn = false
-            lastSignInCancelled = true
         } catch let urlError as URLError where urlError.code == .cancelled {
             isSignedIn = false
-            lastSignInCancelled = true
+        } catch ApeosError.loginFailed(let result) {
+            isSignedIn = false
+            autoSignInBlocked = true
+            errorMessage = ApeosError.loginFailed(result).localizedDescription
         } catch {
             isSignedIn = false
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Records a password just saved to the keychain, so that retries in this run use
+    /// it rather than whatever was read when the printer was first opened.
+    func passwordSaved(_ password: String) {
+        storedPassword = password
+        passwordLocked = false
+    }
+
     func signOut() async {
         if let client { await client.logout() }
         isSignedIn = false
+        autoSignInBlocked = true
         notice = nil
         accountingJSON = [:]
         accounts = []; users = []
